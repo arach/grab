@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
-import { convertFileSrc } from "@tauri-apps/api/tauri";
+import { listen } from "@tauri-apps/api/event";
 import { CaptureFile, CaptureTypeFilter, CaptureMetadata } from "./types";
 import { Header } from "./components/Header";
 import { CaptureGrid } from "./components/CaptureGrid";
@@ -15,14 +15,24 @@ function App() {
   const [selectedMetadata, setSelectedMetadata] = useState<CaptureMetadata | null>(null);
   const [selectedTextContent, setSelectedTextContent] = useState<string>('');
   const [filters, setFilters] = useState<CaptureTypeFilter>({
-    screen: true,
+    screen_region: true,
     window: true,
-    selection: true,
     clipboard: true,
+    url: true,
   });
 
   useEffect(() => {
     loadCaptures();
+    
+    // Listen for capture ID events from Tauri
+    const unlisten = listen('capture-id', (event) => {
+      const captureId = event.payload as string;
+      handleDeepLinkCapture(captureId);
+    });
+
+    return () => {
+      unlisten.then(fn => fn());
+    };
   }, []);
 
   useEffect(() => {
@@ -61,6 +71,22 @@ function App() {
       setLoading(false);
     }
   };
+
+  const handleDeepLinkCapture = useCallback((captureId: string) => {
+    // Find the capture by ID (assuming capture ID is part of the filename)
+    const targetCapture = captures.find(capture => 
+      capture.name.includes(captureId) || 
+      capture.metadata?.id === captureId
+    );
+    
+    if (targetCapture) {
+      setSelectedCapture(targetCapture);
+      console.log('Command line argument opened capture:', captureId);
+    } else {
+      console.warn('Capture not found for command line argument:', captureId);
+      // Optionally show a notification or error message
+    }
+  }, [captures]);
 
   const deleteCapture = async (captureToDelete: CaptureFile) => {
     try {
@@ -114,7 +140,7 @@ function App() {
         if (capture.capture_type === 'text') {
           return filters.clipboard;
         }
-        return filters.screen;
+        return filters.screen_region;
       }
       return true;
     });

@@ -1,5 +1,3 @@
-import { writeText } from '@tauri-apps/api/clipboard';
-import { invoke } from '@tauri-apps/api/tauri';
 import { Action, CORE_ACTIONS } from './index';
 
 export const viewAction: Action = {
@@ -9,9 +7,9 @@ export const viewAction: Action = {
   icon: 'Eye',
   category: 'view',
   supportedTypes: ['screenshot', 'text', 'link'],
-  execute: async (capture, options) => {
+  execute: async (_capture, _options) => {
     // This is handled by the UI state, not a separate action
-    console.log('View action executed for', capture.id);
+    console.log('View action executed');
   },
 };
 
@@ -22,12 +20,9 @@ export const copyAction: Action = {
   icon: 'Copy',
   category: 'export',
   supportedTypes: ['screenshot', 'text', 'link'],
-  execute: async (capture, options) => {
-    if (capture.type === 'screenshot') {
-      await invoke('copy_image_to_clipboard', { path: capture.content });
-    } else {
-      await writeText(capture.content);
-    }
+  execute: async (_capture, _options) => {
+    // Implementation moved to ActionView component
+    console.log('Copy action executed');
   },
 };
 
@@ -38,21 +33,9 @@ export const downloadAction: Action = {
   icon: 'Download',
   category: 'export',
   supportedTypes: ['screenshot', 'text', 'link'],
-  execute: async (capture, options) => {
-    if (capture.type === 'screenshot') {
-      await invoke('save_capture_to_downloads', { 
-        id: capture.id, 
-        filename: `grab-${capture.id}.png` 
-      });
-    } else {
-      const blob = new Blob([capture.content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `grab-${capture.id}.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+  execute: async (_capture, _options) => {
+    // Implementation moved to ActionView component
+    console.log('Download action executed');
   },
 };
 
@@ -63,17 +46,9 @@ export const shareAction: Action = {
   icon: 'Share2',
   category: 'share',
   supportedTypes: ['screenshot', 'text', 'link'],
-  execute: async (capture, options) => {
-    if (navigator.share) {
-      await navigator.share({
-        title: capture.metadata?.title || 'Grab Capture',
-        text: capture.type === 'text' ? capture.content : `Captured ${capture.type}`,
-        url: capture.type === 'link' ? capture.content : undefined,
-      });
-    } else {
-      // Fallback to copy
-      await copyAction.execute(capture, options);
-    }
+  execute: async (_capture, _options) => {
+    // Implementation moved to ActionView component
+    console.log('Share action executed');
   },
 };
 
@@ -84,13 +59,9 @@ export const deleteAction: Action = {
   icon: 'Trash2',
   category: 'manage',
   supportedTypes: ['screenshot', 'text', 'link'],
-  execute: async (capture, options) => {
-    if (window.confirm('Are you sure you want to delete this capture?')) {
-      await invoke('delete_capture', { id: capture.id });
-      if (options?.onDelete) {
-        options.onDelete(capture.id);
-      }
-    }
+  execute: async (_capture, _options) => {
+    // Implementation moved to ActionView component
+    console.log('Delete action executed');
   },
 };
 

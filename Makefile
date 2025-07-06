@@ -108,23 +108,71 @@ info:
 	@echo "  Install Path: $(INSTALL_PATH)"
 	@echo "  Swift Version: $(shell swift --version | head -n1)"
 
+# Build unified app bundle with embedded Tauri app
+unified: clean-unified
+	@echo "🏗️  Building unified Grab.app with embedded Tauri app..."
+	
+	# Build Swift app
+	@echo "📦 Building Swift binary..."
+	swift build -c release --arch arm64 --arch x86_64
+	
+	# Build Tauri app
+	@echo "🦀 Building Tauri app..."
+	cd grab-actions && pnpm install && pnpm tauri build
+	
+	# Create unified app bundle structure
+	@echo "🔧 Creating unified app bundle..."
+	mkdir -p $(APP_NAME).app/Contents/MacOS
+	mkdir -p $(APP_NAME).app/Contents/Resources
+	
+	# Copy Swift binary as main executable
+	cp $(BUILD_PATH)/$(APP_NAME) $(APP_NAME).app/Contents/MacOS/
+	
+	# Copy Tauri app into Resources
+	cp -R grab-actions/src-tauri/target/release/bundle/macos/Grab\ Actions.app $(APP_NAME).app/Contents/Resources/
+	
+	# Copy and update Info.plist
+	cp Grab/Resources/Info.plist $(APP_NAME).app/Contents/Info.plist
+	
+	@echo "✅ Unified app bundle created: $(APP_NAME).app"
+	@echo "   📍 Swift binary: $(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
+	@echo "   📍 Tauri app: $(APP_NAME).app/Contents/Resources/Grab Actions.app"
+
+# Clean unified build artifacts
+clean-unified:
+	@echo "🧹 Cleaning unified build artifacts..."
+	rm -rf $(APP_NAME).app
+	rm -rf grab-actions/src-tauri/target
+	rm -rf grab-actions/dist
+	swift package clean
+	rm -rf .build
+
+# Install unified app
+install-unified: unified
+	@echo "📲 Installing unified $(APP_NAME) to $(INSTALL_PATH)..."
+	sudo cp -R $(APP_NAME).app $(INSTALL_PATH)/
+	@echo "✅ Unified installation completed!"
+
 # Help
 help:
 	@echo "Available targets:"
-	@echo "  build     - Build the application"
-	@echo "  run       - Build and run the application"
-	@echo "  release   - Build optimized release version"
-	@echo "  clean     - Clean build artifacts"
-	@echo "  bundle    - Create app bundle"
-	@echo "  app       - Create app bundle (alias for bundle)"
-	@echo "  install   - Install to Applications folder"
-	@echo "  uninstall - Remove from Applications folder"
-	@echo "  debug     - Build in debug mode"
-	@echo "  test      - Run tests"
-	@echo "  format    - Format Swift code"
-	@echo "  lint      - Lint Swift code"
-	@echo "  xcode     - Generate Xcode project"
-	@echo "  deps      - Show dependencies"
-	@echo "  update    - Update dependencies"
-	@echo "  info      - Show package information"
-	@echo "  help      - Show this help message"
+	@echo "  build       - Build the application"
+	@echo "  run         - Build and run the application"
+	@echo "  release     - Build optimized release version"
+	@echo "  clean       - Clean build artifacts"
+	@echo "  bundle      - Create app bundle"
+	@echo "  app         - Create app bundle (alias for bundle)"
+	@echo "  unified     - Build unified app with embedded Tauri app"
+	@echo "  clean-unified - Clean unified build artifacts"
+	@echo "  install-unified - Install unified app to Applications"
+	@echo "  install     - Install to Applications folder"
+	@echo "  uninstall   - Remove from Applications folder"
+	@echo "  debug       - Build in debug mode"
+	@echo "  test        - Run tests"
+	@echo "  format      - Format Swift code"
+	@echo "  lint        - Lint Swift code"
+	@echo "  xcode       - Generate Xcode project"
+	@echo "  deps        - Show dependencies"
+	@echo "  update      - Update dependencies"
+	@echo "  info        - Show package information"
+	@echo "  help        - Show this help message"

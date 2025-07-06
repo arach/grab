@@ -5,7 +5,7 @@
 
 use std::fs;
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -192,6 +192,28 @@ fn get_image_content(filename: String) -> Result<String, String> {
     Ok(base64_data)
 }
 
+fn handle_capture_id(app_handle: tauri::AppHandle, capture_id: &str) {
+    // Emit event to frontend with capture ID
+    app_handle.emit_all("capture-id", capture_id).unwrap_or_else(|e| {
+        eprintln!("Failed to emit capture-id event: {}", e);
+    });
+}
+
+fn parse_command_line_args() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    
+    for arg in args.iter() {
+        if arg.starts_with("--capture-id=") {
+            let capture_id = arg.trim_start_matches("--capture-id=");
+            if !capture_id.is_empty() {
+                return Some(capture_id.to_string());
+            }
+        }
+    }
+    
+    None
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -201,6 +223,24 @@ fn main() {
             get_text_content,
             get_image_content
         ])
+        .setup(|app| {
+            // Handle capture ID from command line arguments on app startup
+            if let Some(capture_id) = parse_command_line_args() {
+                handle_capture_id(app.handle(), &capture_id);
+            }
+            Ok(())
+        })
+        .on_window_event(|event| {
+            match event.event() {
+                WindowEvent::Focused(true) => {
+                    // Check for capture ID in command line arguments when window gains focus
+                    if let Some(capture_id) = parse_command_line_args() {
+                        handle_capture_id(event.window().app_handle(), &capture_id);
+                    }
+                },
+                _ => {}
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

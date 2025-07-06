@@ -1,27 +1,21 @@
 import { useState } from 'react';
-import { writeText } from '@tauri-apps/api/clipboard';
 import { invoke } from '@tauri-apps/api/tauri';
-import { X, Download, Copy, Trash2, ZoomIn, ZoomOut, RotateCw, Share2, Tag } from 'lucide-react';
+import { convertFileSrc } from '@tauri-apps/api/tauri';
+import { X, Download, Copy, Trash2, ZoomIn, ZoomOut, RotateCw, Share2 } from 'lucide-react';
+import { CaptureFile, CaptureMetadata } from '../types';
 
 interface ActionViewProps {
-  capture: {
-    id: string;
-    type: 'screenshot' | 'text' | 'link';
-    content: string;
-    timestamp: string;
-    tags?: string[];
-    metadata?: {
-      title?: string;
-      url?: string;
-      app?: string;
-      size?: string;
-    };
-  };
+  capture: CaptureFile;
+  metadata: CaptureMetadata | null;
+  textContent: string;
   onClose: () => void;
-  onDelete: (id: string) => void;
+  onDelete: (capture: CaptureFile) => Promise<void>;
+  onCopyToClipboard: (content: string) => Promise<void>;
+  formatDate: (timestamp: number) => string;
+  formatFileSize: (bytes: number) => string;
 }
 
-export function ActionView({ capture, onClose, onDelete }: ActionViewProps) {
+export function ActionView({ capture, metadata, textContent, onClose, onDelete, onCopyToClipboard, formatDate, formatFileSize }: ActionViewProps) {
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -30,11 +24,10 @@ export function ActionView({ capture, onClose, onDelete }: ActionViewProps) {
   const handleCopy = async () => {
     try {
       setIsCopying(true);
-      if (capture.type === 'screenshot') {
-        // For images, we'd need to copy the image data
-        await invoke('copy_image_to_clipboard', { path: capture.content });
+      if (capture.capture_type === 'image') {
+        await invoke('copy_image_to_clipboard', { path: capture.path });
       } else {
-        await writeText(capture.content);
+        await onCopyToClipboard(textContent);
       }
       setTimeout(() => setIsCopying(false), 1000);
     } catch (error) {
@@ -47,8 +40,7 @@ export function ActionView({ capture, onClose, onDelete }: ActionViewProps) {
     if (window.confirm('Are you sure you want to delete this capture?')) {
       setIsDeleting(true);
       try {
-        await invoke('delete_capture', { id: capture.id });
-        onDelete(capture.id);
+        await onDelete(capture);
         onClose();
       } catch (error) {
         console.error('Failed to delete:', error);
@@ -59,17 +51,16 @@ export function ActionView({ capture, onClose, onDelete }: ActionViewProps) {
 
   const handleDownload = async () => {
     try {
-      if (capture.type === 'screenshot') {
+      if (capture.capture_type === 'image') {
         await invoke('save_capture_to_downloads', { 
-          id: capture.id, 
-          filename: `grab-${capture.id}.png` 
+          filename: capture.name
         });
       } else {
-        const blob = new Blob([capture.content], { type: 'text/plain' });
+        const blob = new Blob([textContent], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `grab-${capture.id}.txt`;
+        a.download = capture.name;
         a.click();
         URL.revokeObjectURL(url);
       }
@@ -82,9 +73,9 @@ export function ActionView({ capture, onClose, onDelete }: ActionViewProps) {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: capture.metadata?.title || 'Grab Capture',
-          text: capture.type === 'text' ? capture.content : `Captured ${capture.type}`,
-          url: capture.type === 'link' ? capture.content : undefined,
+          title: metadata?.filename || 'Grab Capture',
+          text: capture.capture_type === 'text' ? textContent : `Captured ${capture.capture_type}`,
+          url: capture.capture_type === 'url' ? textContent : undefined,
         });
       } else {
         // Fallback to copying to clipboard
@@ -102,10 +93,10 @@ export function ActionView({ capture, onClose, onDelete }: ActionViewProps) {
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center space-x-3">
             <h2 className="text-lg font-semibold text-gray-900">
-              {capture.metadata?.title || `${capture.type.charAt(0).toUpperCase() + capture.type.slice(1)} Capture`}
+              {metadata?.filename || `${capture.capture_type.charAt(0).toUpperCase() + capture.capture_type.slice(1)} Capture`}
             </h2>
             <span className="text-sm text-gray-500">
-              {new Date(capture.timestamp).toLocaleString()}
+              {formatDate(capture.modified)}
             </span>
           </div>
           <button
@@ -118,7 +109,7 @@ export function ActionView({ capture, onClose, onDelete }: ActionViewProps) {
 
         {/* Content */}
         <div className="flex-1 overflow-hidden">
-          {capture.type === 'screenshot' ? (
+          {capture.capture_type === 'image' ? (
             <div className="h-full flex flex-col">
               {/* Image Controls */}
               <div className="flex items-center justify-center space-x-2 p-2 border-b border-gray-200 bg-gray-50">
@@ -157,7 +148,7 @@ export function ActionView({ capture, onClose, onDelete }: ActionViewProps) {
               {/* Image Actions */}
               <div className="flex-1 overflow-auto bg-gray-100 flex items-center justify-center">
                 <img
-                  src={capture.content}
+                  src={convertFileSrc(capture.path)}
                   alt="Capture"
                   className="max-w-none transition-transform duration-200"
                   style={{
@@ -170,44 +161,26 @@ export function ActionView({ capture, onClose, onDelete }: ActionViewProps) {
           ) : (
             <div className="h-full p-4 overflow-auto">
               <div className="bg-gray-50 rounded-lg p-4 font-mono text-sm whitespace-pre-wrap">
-                {capture.content}
+                {textContent}
               </div>
             </div>
           )}
         </div>
 
         {/* Metadata */}
-        {capture.metadata && (
+        {metadata && (
           <div className="px-4 py-2 border-t border-gray-200 bg-gray-50">
             <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-              {capture.metadata.app && (
-                <span><strong>App:</strong> {capture.metadata.app}</span>
+              {metadata.metadata.applicationName && (
+                <span><strong>App:</strong> {metadata.metadata.applicationName}</span>
               )}
-              {capture.metadata.url && (
-                <span><strong>URL:</strong> {capture.metadata.url}</span>
+              {metadata.metadata.url && (
+                <span><strong>URL:</strong> {metadata.metadata.url}</span>
               )}
-              {capture.metadata.size && (
-                <span><strong>Size:</strong> {capture.metadata.size}</span>
+              {metadata.metadata.dimensions && (
+                <span><strong>Size:</strong> {metadata.metadata.dimensions.width} × {metadata.metadata.dimensions.height}</span>
               )}
-            </div>
-          </div>
-        )}
-
-        {/* Tags */}
-        {capture.tags && capture.tags.length > 0 && (
-          <div className="px-4 py-2 border-t border-gray-200">
-            <div className="flex items-center space-x-2">
-              <Tag className="w-4 h-4 text-gray-500" />
-              <div className="flex flex-wrap gap-1">
-                {capture.tags.map((tag, index) => (
-                  <span
-                    key={index}
-                    className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+              <span><strong>File Size:</strong> {formatFileSize(capture.size)}</span>
             </div>
           </div>
         )}

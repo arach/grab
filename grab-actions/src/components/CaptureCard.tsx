@@ -60,16 +60,16 @@ export function CaptureCard({ capture, isSelected, onClick }: CaptureCardProps) 
   };
 
   const getCaptureTypeIcon = () => {
-    if (metadata?.type) {
-      switch (metadata.type) {
-        case 'screen':
+    if (metadata?.captureType) {
+      switch (metadata.captureType) {
+        case 'screen_region':
           return '🖥️';
         case 'window':
           return '🪟';
-        case 'selection':
-          return '✂️';
         case 'clipboard':
           return '📋';
+        case 'url':
+          return '🔗';
         default:
           return capture.capture_type === 'image' ? '🖼️' : '📄';
       }
@@ -78,16 +78,16 @@ export function CaptureCard({ capture, isSelected, onClick }: CaptureCardProps) 
   };
 
   const getTypeColor = () => {
-    if (metadata?.type) {
-      switch (metadata.type) {
-        case 'screen':
+    if (metadata?.captureType) {
+      switch (metadata.captureType) {
+        case 'screen_region':
           return 'bg-blue-500/20 text-blue-300';
         case 'window':
           return 'bg-green-500/20 text-green-300';
-        case 'selection':
-          return 'bg-purple-500/20 text-purple-300';
         case 'clipboard':
           return 'bg-orange-500/20 text-orange-300';
+        case 'url':
+          return 'bg-purple-500/20 text-purple-300';
         default:
           return 'bg-gray-500/20 text-gray-300';
       }
@@ -115,7 +115,7 @@ export function CaptureCard({ capture, isSelected, onClick }: CaptureCardProps) 
           <div className="flex items-center space-x-2">
             <span className="text-lg">{getCaptureTypeIcon()}</span>
             <span className={`px-2 py-1 rounded text-xs font-medium ${getTypeColor()}`}>
-              {metadata?.type || capture.capture_type}
+              {metadata?.captureType || capture.capture_type}
             </span>
           </div>
           <div className="text-xs text-white/50">
