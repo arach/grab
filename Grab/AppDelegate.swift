@@ -6,6 +6,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var captureManager: CaptureManager!
     var hotkeyManager: HotkeyManager!
     var capturePanel: CaptureWindow?
+    var previewWindow: CapturePreviewWindow?
+    var clipboardPreviewWindow: ClipboardPreviewWindow?
+    var clipboardHistoryWindow: ClipboardHistoryWindow?
+    
+    // Clipboard history management
+    var clipboardHistoryManager = ClipboardHistoryManager()
+    
+    // Pasteboard monitoring
+    var pasteboardTimer: Timer?
+    var lastPasteboardContent: String = ""
+    var lastPasteboardChangeCount: Int = 0
+    var lastChangeTime: Date = Date()
+    var recentChanges: [Date] = []
     
     // Check if we're running in a proper app bundle
     private var isRunningInAppBundle: Bool {
@@ -31,6 +44,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenuBarIcon()
         setupHotkeys()
         setupCaptureWindow()
+        setupPasteboardMonitoring()
         
         print("📱 Menu bar icon and hotkeys configured")
     }
@@ -83,6 +97,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(showCapturePanel)
         
         menu.addItem(NSMenuItem.separator())
+        
+        let showClipboardHistoryItem = NSMenuItem(title: "Show Paste Bin", action: #selector(showClipboardHistory), keyEquivalent: "h")
+        showClipboardHistoryItem.target = self
+        menu.addItem(showClipboardHistoryItem)
+        
+        // Debug item to show clipboard preview
+        let showPreviewItem = NSMenuItem(title: "Show Clipboard Preview (Debug)", action: #selector(showDebugClipboardPreview), keyEquivalent: "d")
+        showPreviewItem.target = self
+        menu.addItem(showPreviewItem)
         
         let openViewerItem = NSMenuItem(title: "Open Grab Viewer", action: #selector(openGrabViewer), keyEquivalent: "v")
         openViewerItem.target = self
@@ -142,6 +165,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         launchTauriViewer()
     }
     
+    @objc func showClipboardHistory() {
+        if clipboardHistoryWindow == nil {
+            clipboardHistoryWindow = ClipboardHistoryWindow(historyManager: clipboardHistoryManager)
+        }
+        clipboardHistoryWindow?.showHistory()
+    }
+    
+    @objc func showDebugClipboardPreview() {
+        // Get current clipboard content or use sample data
+        let pasteboard = NSPasteboard.general
+        
+        if let imageData = getImageFromPasteboard() {
+            // Show image preview
+            showClipboardPreview(content: "Debug Image Preview", contentType: "image", imageData: imageData)
+        } else if let content = pasteboard.string(forType: .string), !content.isEmpty {
+            // Show text content preview
+            let contentType = determineContentType(content: content)
+            showClipboardPreview(content: content, contentType: contentType, imageData: nil)
+        } else {
+            // Show sample preview
+            let sampleContent = "This is a debug preview of the clipboard overlay. You can see how it looks and behaves without waiting for actual clipboard changes."
+            showClipboardPreview(content: sampleContent, contentType: "text", imageData: nil)
+        }
+    }
+    
     @objc func showCapturePanel() {
         capturePanel?.showCapturePanel()
     }
@@ -152,6 +200,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func quitApp() {
         NSApplication.shared.terminate(nil)
+    }
+    
+    // MARK: - Capture Preview
+    
+    func showCapturePreview(for capture: Capture) {
+        // Create preview window if it doesn't exist
+        if previewWindow == nil {
+            previewWindow = CapturePreviewWindow()
+        }
+        
+        // Show the preview
+        previewWindow?.showPreview(for: capture)
     }
     
     // MARK: - Tauri Viewer Integration
@@ -350,5 +410,290 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "OK")
             alert.runModal()
         }
+    }
+    
+    // MARK: - Pasteboard Monitoring
+    
+    private func setupPasteboardMonitoring() {
+        let pasteboard = NSPasteboard.general
+        lastPasteboardChangeCount = pasteboard.changeCount
+        lastPasteboardContent = pasteboard.string(forType: .string) ?? ""
+        
+        // Monitor pasteboard every 500ms
+        pasteboardTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.checkPasteboard()
+        }
+        
+        print("📋 Pasteboard monitoring started")
+    }
+    
+    private func checkPasteboard() {
+        let pasteboard = NSPasteboard.general
+        let currentChangeCount = pasteboard.changeCount
+        
+        // Check if pasteboard content changed
+        if currentChangeCount != lastPasteboardChangeCount {
+            lastPasteboardChangeCount = currentChangeCount
+            let currentTime = Date()
+            
+            // Track recent changes for filtering
+            recentChanges.append(currentTime)
+            // Keep only changes from last 2 seconds
+            recentChanges = recentChanges.filter { currentTime.timeIntervalSince($0) < 2.0 }
+            
+            // Filter out rapid changes that likely indicate selections
+            let timeSinceLastChange = currentTime.timeIntervalSince(lastChangeTime)
+            lastChangeTime = currentTime
+            
+            // Skip if this looks like a selection (too many rapid changes)
+            if recentChanges.count > 3 || timeSinceLastChange < 0.3 {
+                print("📋 Skipping rapid change (likely selection)")
+                return
+            }
+            
+            // Add a delay to ensure content is stable (actual copy vs selection)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                guard let self = self else { return }
+                
+                // Verify the change count is still the same (content is stable)
+                if pasteboard.changeCount == currentChangeCount {
+                    self.processStableClipboardContent(pasteboard: pasteboard)
+                }
+            }
+        }
+    }
+    
+    private func processStableClipboardContent(pasteboard: NSPasteboard) {
+        // Check for different content types
+        if let imageData = getImageFromPasteboard() {
+            // Image content
+            print("📋 New image copied to clipboard")
+            clipboardHistoryManager.addItem(content: "Image (\(formatBytes(imageData.count)))", contentType: "image", imageData: imageData)
+            showClipboardPreview(content: "Image", contentType: "image", imageData: imageData)
+        } else if let fileURL = getFileURLFromPasteboard() {
+            // File content
+            let fileName = fileURL.lastPathComponent
+            print("📋 New file copied to clipboard: \(fileName)")
+            clipboardHistoryManager.addItem(content: fileName, contentType: "file", imageData: nil)
+            showClipboardPreview(content: fileName, contentType: "file", imageData: nil)
+        } else if let currentContent = pasteboard.string(forType: .string) {
+            // Text content - only show if significantly different and not just a selection
+            if currentContent != lastPasteboardContent && 
+               !currentContent.isEmpty && 
+               shouldShowPreviewForContent(currentContent) {
+                lastPasteboardContent = currentContent
+                
+                print("📋 New pasteboard content detected: \(String(currentContent.prefix(50)))...")
+                
+                let contentType = determineContentType(content: currentContent)
+                
+                // Add to clipboard history
+                clipboardHistoryManager.addItem(content: currentContent, contentType: contentType, imageData: nil)
+                
+                // Show brief preview
+                showClipboardPreview(content: currentContent, contentType: contentType, imageData: nil)
+                
+                // Also send to Tauri app if running
+                sendClipboardContentToTauri(content: currentContent)
+            }
+        }
+    }
+    
+    private func formatBytes(_ bytes: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
+    
+    private func shouldShowPreviewForContent(_ content: String) -> Bool {
+        // Filter out very short selections (likely just selections, not copies)
+        if content.count < 15 {
+            return false
+        }
+        
+        // Filter out single words or short phrases (likely selections)
+        if !content.contains(" ") && !content.contains("\n") && content.count < 150 {
+            return false
+        }
+        
+        // Filter out short phrases without meaningful content
+        let wordCount = content.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
+        if wordCount < 5 && content.count < 100 {
+            return false
+        }
+        
+        // Filter out content that looks like partial selections
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedContent.count < 10 {
+            return false
+        }
+        
+        // Filter out content that's very similar to previous (avoid duplicates)
+        let similarity = stringSimilarity(content, lastPasteboardContent)
+        if similarity > 0.7 {
+            return false
+        }
+        
+        // Additional heuristics for copy vs selection
+        // URLs are more likely to be deliberately copied
+        if content.hasPrefix("http://") || content.hasPrefix("https://") {
+            return content.count > 20 // Reasonable URL length
+        }
+        
+        // Code snippets are more likely to be deliberately copied
+        if content.contains("{") || content.contains("}") || content.contains("function") || content.contains("class") {
+            return content.count > 30
+        }
+        
+        // Longer content is more likely to be deliberate
+        if content.count > 100 {
+            return true
+        }
+        
+        // Multi-line content is more likely to be deliberate
+        if content.components(separatedBy: .newlines).count > 2 {
+            return true
+        }
+        
+        return false
+    }
+    
+    private func stringSimilarity(_ str1: String, _ str2: String) -> Double {
+        let maxLength = max(str1.count, str2.count)
+        if maxLength == 0 { return 1.0 }
+        
+        let distance = levenshteinDistance(str1, str2)
+        return 1.0 - Double(distance) / Double(maxLength)
+    }
+    
+    private func levenshteinDistance(_ str1: String, _ str2: String) -> Int {
+        let str1Array = Array(str1)
+        let str2Array = Array(str2)
+        let str1Count = str1Array.count
+        let str2Count = str2Array.count
+        
+        var matrix = Array(repeating: Array(repeating: 0, count: str2Count + 1), count: str1Count + 1)
+        
+        for i in 0...str1Count {
+            matrix[i][0] = i
+        }
+        
+        for j in 0...str2Count {
+            matrix[0][j] = j
+        }
+        
+        for i in 1...str1Count {
+            for j in 1...str2Count {
+                let cost = str1Array[i-1] == str2Array[j-1] ? 0 : 1
+                matrix[i][j] = min(
+                    matrix[i-1][j] + 1,      // deletion
+                    matrix[i][j-1] + 1,      // insertion
+                    matrix[i-1][j-1] + cost  // substitution
+                )
+            }
+        }
+        
+        return matrix[str1Count][str2Count]
+    }
+    
+    private func getImageFromPasteboard() -> Data? {
+        let pasteboard = NSPasteboard.general
+        
+        // Check for different image types
+        if let imageData = pasteboard.data(forType: .png) {
+            return imageData
+        } else if let imageData = pasteboard.data(forType: NSPasteboard.PasteboardType("public.jpeg")) {
+            return imageData
+        } else if let imageData = pasteboard.data(forType: .tiff) {
+            return imageData
+        }
+        
+        return nil
+    }
+    
+    private func getFileURLFromPasteboard() -> URL? {
+        let pasteboard = NSPasteboard.general
+        
+        if let fileURLs = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL],
+           let fileURL = fileURLs.first {
+            return fileURL
+        }
+        
+        return nil
+    }
+    
+    private func showClipboardPreview(content: String, contentType: String, imageData: Data?) {
+        // Create clipboard preview window if it doesn't exist
+        if clipboardPreviewWindow == nil {
+            clipboardPreviewWindow = ClipboardPreviewWindow()
+        }
+        
+        // Show the preview with callback to open history
+        clipboardPreviewWindow?.showPreview(
+            content: content,
+            contentType: contentType,
+            imageData: imageData,
+            onOpenHistory: { [weak self] in
+                self?.showClipboardHistory()
+            }
+        )
+    }
+    
+    private func sendClipboardContentToTauri(content: String) {
+        guard isTauriAppRunning(appName: "grab-actions") else {
+            print("📋 Tauri app not running, skipping clipboard event")
+            return
+        }
+        
+        // Create a JSON payload for the clipboard content
+        let clipboardData: [String: Any] = [
+            "content": content,
+            "timestamp": Date().timeIntervalSince1970,
+            "type": determineContentType(content: content)
+        ]
+        
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: clipboardData)
+            
+            // Write clipboard event to a shared file that Tauri can monitor
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let grabDir = appSupport.appendingPathComponent("Grab")
+            let clipboardEventFile = grabDir.appendingPathComponent("clipboard_event.json")
+            
+            // Ensure the directory exists
+            try FileManager.default.createDirectory(at: grabDir, withIntermediateDirectories: true, attributes: nil)
+            
+            // Write the clipboard event
+            try jsonData.write(to: clipboardEventFile)
+            
+            print("📋 Clipboard event written to: \(clipboardEventFile.path)")
+            
+        } catch {
+            print("📋 Failed to write clipboard event: \(error)")
+        }
+    }
+    
+    private func determineContentType(content: String) -> String {
+        // Check if it's a URL
+        if content.hasPrefix("http://") || content.hasPrefix("https://") {
+            return "url"
+        }
+        
+        // Check if it looks like code (contains brackets, semicolons, and newlines)
+        if content.contains("{") && content.contains("}") && content.contains("\n") {
+            return "code"
+        }
+        
+        if content.contains("[") && content.contains("]") && content.contains("\n") {
+            return "code"
+        }
+        
+        // Default to text
+        return "text"
+    }
+    
+    deinit {
+        pasteboardTimer?.invalidate()
     }
 }

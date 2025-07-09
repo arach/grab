@@ -2,7 +2,7 @@
   "build": {
     "beforeBuildCommand": "pnpm build",
     "beforeDevCommand": "pnpm dev",
-    "devPath": "http://localhost:1421",
+    "devPath": "http://localhost:1423",
     "distDir": "../dist",
     "withGlobalTauri": false
   },
@@ -17,12 +17,24 @@
         "all": false,
         "readDir": true,
         "readFile": true,
-        "scope": ["$HOME/Library/Application Support/Grab/captures/**"]
+        "writeFile": true,
+        "createDir": true,
+        "scope": [
+          "$HOME/Library/Application Support/Grab/**",
+          "$HOME/Desktop/**",
+          "$HOME/Documents/**",
+          "$HOME/Downloads/**",
+          "$HOME/Pictures/**"
+        ]
       },
       "path": {
         "all": true
       },
       "shell": {
+        "all": false,
+        "open": true
+      },
+      "dialog": {
         "all": false,
         "open": true
       }
@@ -55,7 +67,8 @@
       }
     },
     "security": {
-      "csp": null
+      "csp": null,
+      "devCsp": null
     },
     "updater": {
       "active": false
@@ -68,7 +81,9 @@
         "title": "Grab Actions",
         "width": 1200,
         "minHeight": 600,
-        "minWidth": 800
+        "minWidth": 800,
+        "decorations": true,
+        "center": true
       }
     ]
   }

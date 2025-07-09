@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
-import { convertFileSrc } from '@tauri-apps/api/tauri';
 import { X, Download, Copy, Trash2, ZoomIn, ZoomOut, RotateCw, Share2 } from 'lucide-react';
 import { CaptureFile, CaptureMetadata } from '../types';
 
@@ -20,12 +19,52 @@ export function ActionView({ capture, metadata, textContent, onClose, onDelete, 
   const [rotation, setRotation] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
+  const [imageData, setImageData] = useState<string>('');
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState<string>('');
+
+  // Load image data for image captures
+  useEffect(() => {
+    console.log('ActionView mounted with capture:', {
+      name: capture.name,
+      type: capture.capture_type,
+      path: capture.path
+    });
+    if (capture.capture_type === 'image') {
+      console.log('Detected image type, loading image data...');
+      loadImageData();
+    } else {
+      console.log('Not an image type, skipping image load');
+    }
+  }, [capture]);
+
+  const loadImageData = async () => {
+    try {
+      setImageLoading(true);
+      setImageError('');
+      console.log('Loading image for capture:', capture.name, 'type:', capture.capture_type);
+      const base64Data = await invoke<string>('get_image_content', { filename: capture.name });
+      console.log('Received base64 data length:', base64Data.length);
+      // Determine the image type from file extension
+      const extension = capture.name.split('.').pop()?.toLowerCase() || 'png';
+      const mimeType = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : `image/${extension}`;
+      const dataUrl = `data:${mimeType};base64,${base64Data}`;
+      console.log('Created data URL with mime type:', mimeType);
+      setImageData(dataUrl);
+    } catch (error) {
+      console.error('Failed to load image:', error);
+      setImageError(`Failed to load image: ${error}`);
+    } finally {
+      setImageLoading(false);
+    }
+  };
 
   const handleCopy = async () => {
     try {
       setIsCopying(true);
       if (capture.capture_type === 'image') {
-        await invoke('copy_image_to_clipboard', { path: capture.path });
+        // For images, copy the image file to clipboard
+        await invoke('copy_image_to_clipboard', { filename: capture.name });
       } else {
         await onCopyToClipboard(textContent);
       }
@@ -147,15 +186,42 @@ export function ActionView({ capture, metadata, textContent, onClose, onDelete, 
 
               {/* Image Actions */}
               <div className="flex-1 overflow-auto bg-gray-100 flex items-center justify-center">
-                <img
-                  src={convertFileSrc(capture.path)}
-                  alt="Capture"
-                  className="max-w-none transition-transform duration-200"
-                  style={{
-                    transform: `scale(${zoom}) rotate(${rotation}deg)`,
-                    transformOrigin: 'center',
-                  }}
-                />
+                {imageLoading ? (
+                  <div className="flex items-center justify-center">
+                    <div className="text-gray-500">Loading image...</div>
+                  </div>
+                ) : imageError ? (
+                  <div className="flex flex-col items-center justify-center text-red-500">
+                    <div>{imageError}</div>
+                    <button 
+                      onClick={loadImageData}
+                      className="mt-2 px-3 py-1 bg-red-100 text-red-600 rounded hover:bg-red-200"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : imageData ? (
+                  <img
+                    src={imageData}
+                    alt="Capture"
+                    className="max-w-none transition-transform duration-200"
+                    style={{
+                      transform: `scale(${zoom}) rotate(${rotation}deg)`,
+                      transformOrigin: 'center',
+                    }}
+                    onLoad={() => console.log('Image loaded successfully')}
+                    onError={(e) => {
+                      console.error('Image failed to load:', e);
+                      setImageError('Image failed to display');
+                    }}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-gray-500">
+                    <div>No image data available</div>
+                    <div className="text-xs mt-1">Capture type: {capture.capture_type}</div>
+                    <div className="text-xs">File: {capture.name}</div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (

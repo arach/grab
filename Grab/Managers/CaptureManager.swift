@@ -4,9 +4,14 @@ import CoreGraphics
 import UniformTypeIdentifiers
 import UserNotifications
 
+struct AppSettings: Codable {
+    let captureFolder: String
+    let defaultCaptureFolder: String
+}
+
 class CaptureManager: ObservableObject {
-    private let capturesDirectory: URL
-    private let capturesHistoryFile: URL
+    private var capturesDirectory: URL
+    private var capturesHistoryFile: URL
     private var captureHistory: [Capture] = []
     
     // Check if we're running in a proper app bundle
@@ -15,8 +20,9 @@ class CaptureManager: ObservableObject {
     }
     
     init() {
-        let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        self.capturesDirectory = appSupportDir.appendingPathComponent("Grab/captures")
+        // Load captures directory from settings or use default
+        let capturesDir = CaptureManager.loadCapturesDirectory()
+        self.capturesDirectory = capturesDir
         self.capturesHistoryFile = capturesDirectory.appendingPathComponent("history.json")
         
         setupCapturesDirectory()
@@ -39,6 +45,55 @@ class CaptureManager: ObservableObject {
                 print("Notification permission error: \(error)")
             }
             print("Notification permission granted: \(granted)")
+        }
+    }
+    
+    private static func loadCapturesDirectory() -> URL {
+        // Try to load custom directory from settings
+        if let customDirectory = loadAppSettings()?.captureFolder {
+            let customURL = URL(fileURLWithPath: customDirectory)
+            if FileManager.default.fileExists(atPath: customURL.path) {
+                print("📁 Using custom captures directory: \(customDirectory)")
+                return customURL
+            }
+        }
+        
+        // Fallback to default directory
+        let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let defaultDirectory = appSupportDir.appendingPathComponent("Grab/captures")
+        print("📁 Using default captures directory: \(defaultDirectory.path)")
+        return defaultDirectory
+    }
+    
+    private static func loadAppSettings() -> AppSettings? {
+        let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let settingsFile = appSupportDir.appendingPathComponent("Grab/settings.json")
+        
+        guard FileManager.default.fileExists(atPath: settingsFile.path) else {
+            print("⚙️ No settings file found, using defaults")
+            return nil
+        }
+        
+        do {
+            let data = try Data(contentsOf: settingsFile)
+            let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+            print("⚙️ Loaded settings from: \(settingsFile.path)")
+            return settings
+        } catch {
+            print("⚠️ Failed to load settings: \(error)")
+            return nil
+        }
+    }
+    
+    // Method to update captures directory when settings change
+    func updateCapturesDirectory() {
+        let newDirectory = CaptureManager.loadCapturesDirectory()
+        if newDirectory != capturesDirectory {
+            print("📁 Updating captures directory from \(capturesDirectory.path) to \(newDirectory.path)")
+            capturesDirectory = newDirectory
+            capturesHistoryFile = capturesDirectory.appendingPathComponent("history.json")
+            setupCapturesDirectory()
+            loadCaptureHistory()
         }
     }
     
@@ -254,6 +309,9 @@ class CaptureManager: ObservableObject {
     }
     
     private func showNotification(for capture: Capture) {
+        // Show preview window instead of notification
+        showPreviewWindow(for: capture)
+        
         guard isRunningInAppBundle else {
             // Fallback to console output when notifications aren't available
             print("✅ Saved \(capture.type.displayName) capture: \(capture.filename)")
@@ -276,6 +334,14 @@ class CaptureManager: ObservableObject {
                 print("Failed to show notification: \(error)")
                 // Fallback to console output if notification fails
                 print("✅ Saved \(capture.type.displayName) capture: \(capture.filename)")
+            }
+        }
+    }
+    
+    private func showPreviewWindow(for capture: Capture) {
+        DispatchQueue.main.async {
+            if let appDelegate = NSApp.delegate as? AppDelegate {
+                appDelegate.showCapturePreview(for: capture)
             }
         }
     }
