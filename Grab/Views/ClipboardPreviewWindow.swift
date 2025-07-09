@@ -55,21 +55,24 @@ class ClipboardPreviewWindow: NSWindow {
             let maxSafeX = screenFrame.maxX - frame.width - safeRightMargin
             let windowX = min(idealX, maxSafeX)
             
-            // Position based on menu bar visibility
+            // Position based on menu bar visibility with more conservative approach
             let menuBarBottom = screenFrame.maxY - menuBarHeight
-            let tightGap: CGFloat = isMenuBarVisible ? 2 : 10 // Tight when menu bar visible, more gap when auto-hiding
-            let desiredY = isMenuBarVisible ? 
-                menuBarBottom - frame.height - tightGap : // Below menu bar when visible
-                screenFrame.maxY - frame.height - tightGap // Top of screen when auto-hiding
+            let tightGap: CGFloat = isMenuBarVisible ? 8 : 15 // Increased gaps for safety
             
-            // Minimal safety margin - just enough to ensure it's not clipped
-            let minSafetyMargin: CGFloat = 5
-            let maxAllowedY = visibleFrame.maxY - frame.height - minSafetyMargin
-            let minAllowedY = visibleFrame.minY + minSafetyMargin
+            // Always position below visible area to avoid cutoff
+            let desiredY = visibleFrame.maxY - frame.height - tightGap
             
-            // Use desired position if safe, otherwise use closest safe position
-            let finalWindowY = min(desiredY, maxAllowedY)
-            let safeWindowY = max(finalWindowY, minAllowedY)
+            // Conservative safety margins 
+            let safetyMargin: CGFloat = 20
+            let maxAllowedY = visibleFrame.maxY - frame.height - safetyMargin
+            let minAllowedY = visibleFrame.minY + safetyMargin
+            
+            // Use most conservative position
+            let safeWindowY = max(minAllowedY, min(desiredY, maxAllowedY))
+            
+            print("🔍 Debug positioning - Screen: \(screenFrame), Visible: \(visibleFrame)")
+            print("🔍 MenuBar height: \(menuBarHeight), Bottom: \(menuBarBottom)")
+            print("🔍 Desired Y: \(desiredY), Safe Y: \(safeWindowY), Window height: \(frame.height)")
             
             let windowFrame = NSRect(
                 x: max(20, windowX), // Reduced left margin for tighter fit
@@ -85,11 +88,10 @@ class ClipboardPreviewWindow: NSWindow {
             let windowX = screenFrame.maxX - frame.width - safeRightMargin
             
             // Position below menu bar, consistent with status bar positioning
-            let menuBarBottom = screenFrame.maxY - menuBarHeight
-            let tightGap: CGFloat = isMenuBarVisible ? 2 : 10
-            let windowY = isMenuBarVisible ? 
-                menuBarBottom - frame.height - tightGap : // Below menu bar when visible
-                screenFrame.maxY - frame.height - tightGap // Top of screen when auto-hiding
+            let tightGap: CGFloat = isMenuBarVisible ? 8 : 15
+            let windowY = visibleFrame.maxY - frame.height - tightGap
+            
+            print("🔍 Fallback positioning - Y: \(windowY), VisibleFrame maxY: \(visibleFrame.maxY)")
             
             let windowFrame = NSRect(
                 x: max(20, windowX),
