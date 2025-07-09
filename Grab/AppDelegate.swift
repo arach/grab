@@ -1,6 +1,32 @@
 import Cocoa
 import SwiftUI
 
+// Global crash logging function (needed for signal handlers)
+func writeCrashLog(_ message: String) {
+    do {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let grabDir = appSupport.appendingPathComponent("Grab")
+        try FileManager.default.createDirectory(at: grabDir, withIntermediateDirectories: true, attributes: nil)
+        
+        let logFile = grabDir.appendingPathComponent("crash_log.txt")
+        let logData = message.data(using: .utf8)!
+        
+        if FileManager.default.fileExists(atPath: logFile.path) {
+            // Append to existing file
+            if let fileHandle = FileHandle(forWritingAtPath: logFile.path) {
+                fileHandle.seekToEndOfFile()
+                fileHandle.write(logData)
+                fileHandle.closeFile()
+            }
+        } else {
+            // Create new file
+            try logData.write(to: logFile)
+        }
+    } catch {
+        print("❌ Failed to write crash log: \(error)")
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var captureManager: CaptureManager!
@@ -26,27 +52,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set up crash detection and logging
+        setupCrashLogging()
+        
         // Make this a proper menu bar app (no dock icon)
         NSApp.setActivationPolicy(.accessory)
         
         // Debug print to show bundle status
         print("🚀 Grab app started successfully")
         print("📦 Running in app bundle: \(isRunningInAppBundle)")
+        print("📦 Process ID: \(getpid())")
         if let bundleId = Bundle.main.bundleIdentifier {
             print("📦 Bundle identifier: \(bundleId)")
         } else {
             print("📦 No bundle identifier found - running in development mode")
         }
         
+        print("🔧 Initializing managers...")
         captureManager = CaptureManager()
-        hotkeyManager = HotkeyManager(captureManager: captureManager)
+        print("✅ CaptureManager initialized")
         
+        hotkeyManager = HotkeyManager(captureManager: captureManager)
+        print("✅ HotkeyManager initialized")
+        
+        print("🔧 Setting up UI components...")
         setupMenuBarIcon()
         setupHotkeys()
         setupCaptureWindow()
         setupPasteboardMonitoring()
         
         print("📱 Menu bar icon and hotkeys configured")
+        
+        // Start periodic health check
+        startPeriodicHealthCheck()
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -280,7 +318,115 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func quitApp() {
+        print("🔄 Application terminating gracefully...")
         NSApplication.shared.terminate(nil)
+    }
+    
+    // MARK: - Crash Logging and Health Monitoring
+    
+    private func setupCrashLogging() {
+        // Set up signal handlers for crash detection
+        signal(SIGABRT, { signal in
+            let crashLog = "💥 CRASH DETECTED: SIGABRT (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
+            writeCrashLog(crashLog)
+            print(crashLog)
+            fflush(stdout)
+            exit(1)
+        })
+        
+        signal(SIGSEGV, { signal in
+            let crashLog = "💥 CRASH DETECTED: SIGSEGV (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
+            writeCrashLog(crashLog)
+            print(crashLog)
+            fflush(stdout)
+            exit(1)
+        })
+        
+        signal(SIGILL, { signal in
+            let crashLog = "💥 CRASH DETECTED: SIGILL (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
+            writeCrashLog(crashLog)
+            print(crashLog)
+            fflush(stdout)
+            exit(1)
+        })
+        
+        signal(SIGFPE, { signal in
+            let crashLog = "💥 CRASH DETECTED: SIGFPE (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
+            writeCrashLog(crashLog)
+            print(crashLog)
+            fflush(stdout)
+            exit(1)
+        })
+        
+        signal(SIGBUS, { signal in
+            let crashLog = "💥 CRASH DETECTED: SIGBUS (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
+            writeCrashLog(crashLog)
+            print(crashLog)
+            fflush(stdout)
+            exit(1)
+        })
+        
+        // Set up exception handler
+        NSSetUncaughtExceptionHandler { exception in
+            let crashLog = "💥 UNCAUGHT EXCEPTION: \(exception)\n💥 Reason: \(exception.reason ?? "Unknown")\n💥 Stack trace: \(exception.callStackSymbols)\n💥 Time: \(Date())\n"
+            writeCrashLog(crashLog)
+            print(crashLog)
+            fflush(stdout)
+        }
+        
+        print("🛡️ Crash logging initialized")
+        writeCrashLog("📝 Crash logging initialized at \(Date())\n")
+    }
+    
+    private func startPeriodicHealthCheck() {
+        Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
+            self.logHealthStatus()
+        }
+    }
+    
+    private func logHealthStatus() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        let timestamp = formatter.string(from: Date())
+        
+        let healthLog = "💓 Health check [\(timestamp)]: App running normally\n💓 Memory usage: \(self.getMemoryUsage()) MB\n💓 Clipboard items: \(self.clipboardHistoryManager.items.count)\n"
+        
+        print(healthLog)
+        writeCrashLog(healthLog)
+        
+        // Check if critical components are still alive
+        if self.statusItem == nil {
+            let warning = "⚠️ WARNING: Status item is nil!\n"
+            print(warning)
+            writeCrashLog(warning)
+        }
+        if self.captureManager == nil {
+            let warning = "⚠️ WARNING: Capture manager is nil!\n"
+            print(warning)
+            writeCrashLog(warning)
+        }
+        if self.hotkeyManager == nil {
+            let warning = "⚠️ WARNING: Hotkey manager is nil!\n"
+            print(warning)
+            writeCrashLog(warning)
+        }
+    }
+    
+    private func getMemoryUsage() -> Int {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        
+        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        
+        if kerr == KERN_SUCCESS {
+            return Int(info.resident_size) / 1024 / 1024
+        } else {
+            return 0
+        }
     }
     
     // MARK: - Capture Preview
