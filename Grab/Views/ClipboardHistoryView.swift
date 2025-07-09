@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct ClipboardHistoryView: View {
     @ObservedObject var historyManager: ClipboardHistoryManager
     @State private var searchText = ""
+    @State private var storageInfo: (totalSize: Int64, itemCount: Int, warning: String?) = (0, 0, nil)
     
     private var filteredItems: [ClipboardItem] {
         if searchText.isEmpty {
@@ -25,9 +26,49 @@ struct ClipboardHistoryView: View {
                     
                     Spacer()
                     
-                    Text("\(historyManager.items.count) items")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(historyManager.items.count) items")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.5))
+                        
+                        if storageInfo.totalSize > 0 {
+                            Text(formatBytes(storageInfo.totalSize))
+                                .font(.system(size: 9, weight: .regular, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                    }
+                }
+                
+                // Storage warning if needed
+                if let warning = storageInfo.warning {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                            .font(.system(size: 10))
+                        
+                        Text(warning)
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(.orange.opacity(0.9))
+                        
+                        Spacer()
+                        
+                        Button("Clear Old Items") {
+                            clearOldItems()
+                        }
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundColor(.orange)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(.orange.opacity(0.1))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(.orange.opacity(0.3), lineWidth: 0.5)
+                            )
+                    )
                 }
                 
                 // Search bar
@@ -75,11 +116,50 @@ struct ClipboardHistoryView: View {
                 }
                 .scrollIndicators(.visible)
                 .scrollContentBackground(.hidden)
-                .background(.black.opacity(0.75))
+                .background(
+                    // Try to influence scroll bar appearance through background
+                    LinearGradient(
+                        colors: [.black.opacity(0.75), .black.opacity(0.8)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .preferredColorScheme(.dark)
             }
         }
         .background(liquidGlassBackground)
         .frame(minWidth: 400, minHeight: 450)
+        .onAppear {
+            updateStorageInfo()
+        }
+        .onChange(of: historyManager.items) { _ in
+            updateStorageInfo()
+        }
+    }
+    
+    private func updateStorageInfo() {
+        storageInfo = ClipboardHistoryManager.getStorageInfo()
+    }
+    
+    private func clearOldItems() {
+        // Remove items older than 7 days
+        let sevenDaysAgo = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+        let indicesToRemove = historyManager.items.enumerated().compactMap { index, item in
+            item.timestamp < sevenDaysAgo ? index : nil
+        }.reversed() // Remove from end to avoid index shifting
+        
+        for index in indicesToRemove {
+            historyManager.removeItem(at: index)
+        }
+        
+        updateStorageInfo()
+    }
+    
+    private func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useKB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
     
     private var emptyState: some View {
@@ -155,87 +235,128 @@ struct ClipboardHistoryItemView: View {
     }
     
     var body: some View {
-        HStack(spacing: 12) {
-            // Content type indicator or image thumbnail
-            Group {
-                if item.contentType.lowercased() == "image", let imageData = item.imageData,
-                   let nsImage = NSImage(data: imageData) {
-                    // Image thumbnail with drag support
-                    DraggableImageView(
-                        image: nsImage,
-                        imageData: imageData,
-                        borderColor: contentTypeColor
-                    )
-                    .frame(width: 48, height: 48)
-                } else {
-                    // Content type indicator
-                    ZStack {
-                        Circle()
-                            .fill(contentTypeColor.opacity(0.15))
-                            .frame(width: 32, height: 32)
-                        
-                        Image(systemName: contentTypeIcon)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(contentTypeColor.opacity(0.8))
+        ZStack {
+            // Main content (always visible and stable)
+            HStack(spacing: 12) {
+                // Content type indicator or draggable thumbnail
+                Group {
+                    if item.contentType.lowercased() == "image", let imageData = item.imageData,
+                       let nsImage = NSImage(data: imageData) {
+                        // Image thumbnail with drag support
+                        DraggableImageView(
+                            image: nsImage,
+                            imageData: imageData,
+                            borderColor: contentTypeColor
+                        )
+                        .frame(width: 48, height: 48)
+                    } else {
+                        // Draggable content type indicator for text, URLs, code, etc.
+                        DraggableContentView(
+                            content: item.content,
+                            contentType: item.contentType,
+                            borderColor: contentTypeColor,
+                            icon: contentTypeIcon
+                        )
+                        .frame(width: 32, height: 32)
                     }
                 }
+                
+                // Content
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.displayContent)
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.8))
+                        .lineLimit(4)
+                        .multilineTextAlignment(.leading)
+                    
+                    HStack {
+                        Text(item.timeAgo)
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.4))
+                        
+                        Spacer()
+                        
+                        Text(item.contentType.uppercased())
+                            .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                            .foregroundColor(contentTypeColor.opacity(0.7))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(contentTypeColor.opacity(0.1))
+                            )
+                    }
+                }
+                
+                // Spacer to push content to the left and reserve space for buttons
+                Spacer()
             }
             
-            // Content
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.displayContent)
-                    .font(.system(size: 11, weight: .regular, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.8))
-                    .lineLimit(4)
-                    .multilineTextAlignment(.leading)
-                
-                HStack {
-                    Text(item.timeAgo)
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.4))
+            // Overlay buttons (appear on top without displacing content)
+            if isHovered {
+                VStack {
+                    HStack {
+                        Spacer()
+                        
+                        HStack(spacing: 4) {
+                            Button(action: onCopy) {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .frame(width: 24, height: 24)
+                                    .background(
+                                        Circle()
+                                            .fill(.black.opacity(0.85))
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(.white.opacity(0.2), lineWidth: 0.5)
+                                            )
+                                            .shadow(color: .black.opacity(0.4), radius: 3, x: 0, y: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Button(action: { generateFile() }) {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(.blue.opacity(0.9))
+                                    .frame(width: 24, height: 24)
+                                    .background(
+                                        Circle()
+                                            .fill(.black.opacity(0.85))
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(.blue.opacity(0.3), lineWidth: 0.5)
+                                            )
+                                            .shadow(color: .black.opacity(0.4), radius: 3, x: 0, y: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Button(action: onDelete) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(.red.opacity(0.9))
+                                    .frame(width: 24, height: 24)
+                                    .background(
+                                        Circle()
+                                            .fill(.black.opacity(0.85))
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(.red.opacity(0.3), lineWidth: 0.5)
+                                            )
+                                            .shadow(color: .black.opacity(0.4), radius: 3, x: 0, y: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.top, 8)
+                        .padding(.trailing, 12)
+                    }
                     
                     Spacer()
-                    
-                    Text(item.contentType.uppercased())
-                        .font(.system(size: 8, weight: .semibold, design: .monospaced))
-                        .foregroundColor(contentTypeColor.opacity(0.7))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(contentTypeColor.opacity(0.1))
-                        )
                 }
-            }
-            
-            // Actions
-            if isHovered {
-                HStack(spacing: 6) {
-                    Button(action: onCopy) {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.6))
-                            .frame(width: 24, height: 24)
-                            .background(
-                                Circle()
-                                    .fill(.white.opacity(0.08))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Button(action: onDelete) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 10))
-                            .foregroundColor(.red.opacity(0.6))
-                            .frame(width: 24, height: 24)
-                            .background(
-                                Circle()
-                                    .fill(.red.opacity(0.08))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-                .transition(.opacity.combined(with: .scale))
+                .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
         }
         .padding(.horizontal, 16)
@@ -255,6 +376,81 @@ struct ClipboardHistoryItemView: View {
         }
         .onTapGesture {
             onCopy()
+        }
+    }
+    
+    private func generateFile() {
+        // Create a save panel for file generation
+        let savePanel = NSSavePanel()
+        savePanel.canCreateDirectories = true
+        savePanel.showsTagField = false
+        
+        // Set default filename and extension based on content type
+        let fileExtension = getFileExtension(for: item.contentType)
+        let defaultName = "clipboard_\(item.contentType)_\(item.timestamp.formatted(.dateTime.hour().minute()))"
+        savePanel.nameFieldStringValue = defaultName
+        savePanel.allowedContentTypes = [getUTType(for: item.contentType)]
+        
+        if savePanel.runModal() == .OK {
+            guard let url = savePanel.url else { return }
+            
+            do {
+                if item.contentType.lowercased() == "url" {
+                    // Create a proper .webloc file for URLs
+                    let weblocContent = """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                    <plist version="1.0">
+                    <dict>
+                        <key>URL</key>
+                        <string>\(item.content)</string>
+                    </dict>
+                    </plist>
+                    """
+                    try weblocContent.write(to: url, atomically: true, encoding: .utf8)
+                } else if item.contentType.lowercased() == "image", let imageData = item.imageData {
+                    // Save image data directly
+                    try imageData.write(to: url)
+                } else {
+                    // For other content types, write as text
+                    try item.content.write(to: url, atomically: true, encoding: .utf8)
+                }
+                
+                // Open the file in Finder after saving
+                NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
+            } catch {
+                print("Failed to save file: \(error)")
+            }
+        }
+    }
+    
+    private func getFileExtension(for contentType: String) -> String {
+        switch contentType.lowercased() {
+        case "url":
+            return "webloc"
+        case "code":
+            return "txt"
+        case "image":
+            return "png"
+        case "file":
+            return "txt"
+        default:
+            return "txt"
+        }
+    }
+    
+    private func getUTType(for contentType: String) -> UTType {
+        switch contentType.lowercased() {
+        case "url":
+            return UTType(filenameExtension: "webloc") ?? .data
+        case "code":
+            return .plainText
+        case "image":
+            return .png
+        case "file":
+            return .plainText
+        default:
+            return .plainText
         }
     }
 }
@@ -355,6 +551,157 @@ class DraggableImageNSView: NSView {
 }
 
 extension DraggableImageNSView: NSDraggingSource {
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        return .copy
+    }
+    
+    func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
+        // Optional: Add visual feedback when drag begins
+    }
+    
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        // Optional: Clean up after drag ends
+    }
+}
+
+struct DraggableContentView: NSViewRepresentable {
+    let content: String
+    let contentType: String
+    let borderColor: Color
+    let icon: String
+    
+    func makeNSView(context: Context) -> DraggableContentNSView {
+        let view = DraggableContentNSView()
+        view.setup(content: content, contentType: contentType, borderColor: borderColor, icon: icon)
+        return view
+    }
+    
+    func updateNSView(_ nsView: DraggableContentNSView, context: Context) {
+        nsView.setup(content: content, contentType: contentType, borderColor: borderColor, icon: icon)
+    }
+}
+
+class DraggableContentNSView: NSView {
+    private var content: String = ""
+    private var contentType: String = ""
+    private var borderColor: NSColor = .systemBlue
+    private var icon: String = ""
+    
+    func setup(content: String, contentType: String, borderColor: Color, icon: String) {
+        self.content = content
+        self.contentType = contentType
+        self.borderColor = NSColor(borderColor)
+        self.icon = icon
+        self.needsDisplay = true
+    }
+    
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        
+        // Draw circular background
+        let circle = NSBezierPath(ovalIn: bounds)
+        borderColor.withAlphaComponent(0.15).setFill()
+        circle.fill()
+        
+        // Draw border
+        borderColor.withAlphaComponent(0.3).setStroke()
+        circle.lineWidth = 1
+        circle.stroke()
+        
+        // Draw icon (simplified representation)
+        let iconRect = NSRect(
+            x: bounds.midX - 6,
+            y: bounds.midY - 6,
+            width: 12,
+            height: 12
+        )
+        
+        // Draw a simple icon representation
+        borderColor.withAlphaComponent(0.8).setFill()
+        let iconPath = NSBezierPath(rect: iconRect)
+        iconPath.fill()
+        
+        // Add drag indicator in bottom right corner
+        let dragIconSize: CGFloat = 8
+        let dragIconRect = NSRect(
+            x: bounds.maxX - dragIconSize - 1,
+            y: bounds.minY + 1,
+            width: dragIconSize,
+            height: dragIconSize
+        )
+        
+        // Draw small drag icon background
+        let iconBg = NSBezierPath(ovalIn: dragIconRect)
+        NSColor.black.withAlphaComponent(0.6).setFill()
+        iconBg.fill()
+        
+        // Draw drag icon (simplified cursor/hand icon)
+        NSColor.white.withAlphaComponent(0.8).setStroke()
+        let iconPath2 = NSBezierPath()
+        iconPath2.move(to: NSPoint(x: dragIconRect.minX + 2, y: dragIconRect.midY))
+        iconPath2.line(to: NSPoint(x: dragIconRect.maxX - 2, y: dragIconRect.midY))
+        iconPath2.move(to: NSPoint(x: dragIconRect.midX, y: dragIconRect.minY + 2))
+        iconPath2.line(to: NSPoint(x: dragIconRect.midX, y: dragIconRect.maxY - 2))
+        iconPath2.lineWidth = 0.5
+        iconPath2.stroke()
+    }
+    
+    override func mouseDown(with event: NSEvent) {
+        // Create temporary file for dragging based on content type
+        let tempDirectory = FileManager.default.temporaryDirectory
+        let fileExtension = getFileExtension(for: contentType)
+        let fileName = "clipboard_\(contentType)_\(UUID().uuidString).\(fileExtension)"
+        let tempURL = tempDirectory.appendingPathComponent(fileName)
+        
+        do {
+            if contentType.lowercased() == "url" {
+                // Create a proper .webloc file for URLs
+                let weblocContent = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                <plist version="1.0">
+                <dict>
+                    <key>URL</key>
+                    <string>\(content)</string>
+                </dict>
+                </plist>
+                """
+                try weblocContent.write(to: tempURL, atomically: true, encoding: .utf8)
+            } else {
+                // For other content types, write as text
+                try content.write(to: tempURL, atomically: true, encoding: .utf8)
+            }
+            
+            // Setup drag operation
+            let dragItem = NSDraggingItem(pasteboardWriter: tempURL as NSURL)
+            dragItem.setDraggingFrame(bounds, contents: nil)
+            
+            // Start the drag session
+            beginDraggingSession(with: [dragItem], event: event, source: self)
+        } catch {
+            print("Failed to create temporary file for dragging: \(error)")
+        }
+    }
+    
+    private func getFileExtension(for contentType: String) -> String {
+        switch contentType.lowercased() {
+        case "url":
+            return "webloc" // macOS web location file
+        case "code":
+            return "txt" // Could be improved to detect language
+        case "file":
+            return "txt"
+        default:
+            return "txt"
+        }
+    }
+    
+    override var acceptsFirstResponder: Bool {
+        return true
+    }
+}
+
+extension DraggableContentNSView: NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         return .copy
     }

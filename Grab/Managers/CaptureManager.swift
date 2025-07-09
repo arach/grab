@@ -5,8 +5,13 @@ import UniformTypeIdentifiers
 import UserNotifications
 
 struct AppSettings: Codable {
-    let captureFolder: String
-    let defaultCaptureFolder: String
+    let captureFolder: String?
+    let defaultCaptureFolder: String?
+    
+    init() {
+        captureFolder = nil
+        defaultCaptureFolder = nil
+    }
 }
 
 class CaptureManager: ObservableObject {
@@ -36,15 +41,39 @@ class CaptureManager: ObservableObject {
     
     private func requestNotificationPermission() {
         guard isRunningInAppBundle else {
-            print("Skipping notification permission request - not running in app bundle")
+            print("📱 Skipping notification permission request - not running in app bundle")
             return
         }
         
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error = error {
-                print("Notification permission error: \(error)")
+        // Check current permission status first
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized:
+                print("📱 Notification permission already granted")
+                return
+            case .denied:
+                print("📱 Notification permission denied")
+                return
+            case .notDetermined:
+                // Request permission
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+                    if let error = error {
+                        print("📱 Notification permission request failed: \(error.localizedDescription)")
+                        print("📱 App will continue without notifications")
+                    } else {
+                        print("📱 Notification permission granted: \(granted)")
+                        if !granted {
+                            print("📱 User declined notification permission - app will continue without notifications")
+                        }
+                    }
+                }
+            case .provisional:
+                print("📱 Notification permission provisional")
+            case .ephemeral:
+                print("📱 Notification permission ephemeral")
+            @unknown default:
+                print("📱 Unknown notification permission status")
             }
-            print("Notification permission granted: \(granted)")
         }
     }
     
@@ -331,7 +360,8 @@ class CaptureManager: ObservableObject {
         
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("Failed to show notification: \(error)")
+                print("📱 Failed to show notification: \(error.localizedDescription)")
+                print("📱 This is normal if notification permission was denied")
                 // Fallback to console output if notification fails
                 print("✅ Saved \(capture.type.displayName) capture: \(capture.filename)")
             }

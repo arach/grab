@@ -98,7 +98,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
-        let showClipboardHistoryItem = NSMenuItem(title: "Show Paste Bin", action: #selector(showClipboardHistory), keyEquivalent: "h")
+        let showClipboardHistoryItem = NSMenuItem(title: "Show Paste Bin", action: #selector(showClipboardHistory), keyEquivalent: "b")
         showClipboardHistoryItem.target = self
         menu.addItem(showClipboardHistoryItem)
         
@@ -116,6 +116,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(openFolderItem)
         
         menu.addItem(NSMenuItem.separator())
+        
+        // Storage info
+        menu.addItem(NSMenuItem.separator())
+        
+        let storageItem = NSMenuItem(title: "Storage & Privacy Info", action: #selector(showStorageInfo), keyEquivalent: "")
+        storageItem.target = self
+        menu.addItem(storageItem)
         
         let quitItem = NSMenuItem(title: "Quit Grab", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
@@ -196,6 +203,69 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func hideCapturePanel() {
         capturePanel?.hideCapturePanel()
+    }
+    
+    @objc func showStorageInfo() {
+        let storageInfo = ClipboardHistoryManager.getStorageInfo()
+        let storageDir = ClipboardHistoryManager.getClipboardDirectory()
+        
+        let message = """
+        Grab maintains a separate clipboard history replica for enhanced functionality.
+        
+        📊 Storage Information:
+        • Location: ~/Library/Application Support/Grab/clipboard_history/
+        • Current usage: \(formatStorageSize(storageInfo.totalSize))
+        • Files stored: \(storageInfo.itemCount)
+        • Items in history: \(clipboardHistoryManager.items.count)
+        
+        🔒 Privacy Notes:
+        • This is a LOCAL copy of your clipboard history
+        • No data is sent to external servers
+        • Files are organized by type (images/, text/, urls/, etc.)
+        • Your system clipboard remains unchanged
+        • Clear history anytime to remove stored data
+        
+        ⚠️ Data Sensitivity:
+        • Clipboard may contain sensitive information
+        • Review history regularly and clear when needed
+        • Files persist until manually cleared or app limit reached
+        """
+        
+        let alert = NSAlert()
+        alert.messageText = "Grab Clipboard Storage"
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Open Storage Folder")
+        alert.addButton(withTitle: "Clear All History")
+        alert.addButton(withTitle: "OK")
+        
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            // Open storage folder
+            NSWorkspace.shared.open(storageDir)
+        case .alertSecondButtonReturn:
+            // Clear history with confirmation
+            let confirmAlert = NSAlert()
+            confirmAlert.messageText = "Clear All Clipboard History?"
+            confirmAlert.informativeText = "This will permanently delete all stored clipboard items and files. This action cannot be undone."
+            confirmAlert.alertStyle = .warning
+            confirmAlert.addButton(withTitle: "Clear All")
+            confirmAlert.addButton(withTitle: "Cancel")
+            
+            if confirmAlert.runModal() == .alertFirstButtonReturn {
+                clipboardHistoryManager.clearHistory()
+            }
+        default:
+            break
+        }
+    }
+    
+    private func formatStorageSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useKB, .useBytes]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
     
     @objc func quitApp() {

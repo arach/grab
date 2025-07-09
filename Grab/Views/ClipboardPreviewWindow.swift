@@ -38,51 +38,66 @@ class ClipboardPreviewWindow: NSWindow {
         let visibleFrame = screen.visibleFrame
         let menuBarHeight = screenFrame.maxY - visibleFrame.maxY
         
+        // Detect if menu bar is auto-hiding (when visible frame equals screen frame)
+        let isMenuBarVisible = menuBarHeight > 0
+        let isMenuBarAutoHiding = !isMenuBarVisible
+        
         // Try to get the status bar button position first
         if let statusBarRect = getStatusBarRect() {
             self.statusBarRect = statusBarRect
             
             // Position window near the status bar, avoiding the system tray area
-            let systemTrayWidth: CGFloat = 400 // Very generous margin for system tray area
-            let safeRightMargin = systemTrayWidth + 80 // Extra large margin for safety
+            let systemTrayWidth: CGFloat = 200 // Tighter margin for system tray area
+            let safeRightMargin = systemTrayWidth + 20 // Reduced margin for tighter fit
             
             // Try to center under status bar, but stay in safe area
             let idealX = statusBarRect.minX - (frame.width / 2) + (statusBarRect.width / 2)
             let maxSafeX = screenFrame.maxX - frame.width - safeRightMargin
             let windowX = min(idealX, maxSafeX)
             
-            // Position below menu bar, ensuring it doesn't go above visible area
+            // Position based on menu bar visibility
             let menuBarBottom = screenFrame.maxY - menuBarHeight
-            let windowY = menuBarBottom - frame.height + 2 // Closer to menu bar
+            let tightGap: CGFloat = isMenuBarVisible ? 2 : 10 // Tight when menu bar visible, more gap when auto-hiding
+            let desiredY = isMenuBarVisible ? 
+                menuBarBottom - frame.height - tightGap : // Below menu bar when visible
+                screenFrame.maxY - frame.height - tightGap // Top of screen when auto-hiding
+            
+            // Minimal safety margin - just enough to ensure it's not clipped
+            let minSafetyMargin: CGFloat = 5
+            let maxAllowedY = visibleFrame.maxY - frame.height - minSafetyMargin
+            let minAllowedY = visibleFrame.minY + minSafetyMargin
+            
+            // Use desired position if safe, otherwise use closest safe position
+            let finalWindowY = min(desiredY, maxAllowedY)
+            let safeWindowY = max(finalWindowY, minAllowedY)
             
             let windowFrame = NSRect(
-                x: max(40, windowX), // Ensure minimum left margin
-                y: windowY,
+                x: max(20, windowX), // Reduced left margin for tighter fit
+                y: safeWindowY,
                 width: frame.width,
                 height: frame.height
             )
             setFrame(windowFrame, display: true)
-            
-            print("📍 Positioned preview near status bar at: x=\(windowFrame.minX), y=\(windowFrame.minY)")
         } else {
             // Fallback: consistent position in safe area
-            let systemTrayWidth: CGFloat = 400
-            let safeRightMargin = systemTrayWidth + 80
+            let systemTrayWidth: CGFloat = 200
+            let safeRightMargin = systemTrayWidth + 20
             let windowX = screenFrame.maxX - frame.width - safeRightMargin
             
             // Position below menu bar, consistent with status bar positioning
             let menuBarBottom = screenFrame.maxY - menuBarHeight
-            let windowY = menuBarBottom - frame.height + 2
+            let tightGap: CGFloat = isMenuBarVisible ? 2 : 10
+            let windowY = isMenuBarVisible ? 
+                menuBarBottom - frame.height - tightGap : // Below menu bar when visible
+                screenFrame.maxY - frame.height - tightGap // Top of screen when auto-hiding
             
             let windowFrame = NSRect(
-                x: max(40, windowX),
+                x: max(20, windowX),
                 y: windowY,
                 width: frame.width,
                 height: frame.height
             )
             setFrame(windowFrame, display: true)
-            
-            print("📍 Positioned preview in fallback position at: x=\(windowFrame.minX), y=\(windowFrame.minY)")
         }
     }
     
