@@ -102,6 +102,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showClipboardHistoryItem.target = self
         menu.addItem(showClipboardHistoryItem)
         
+        let resetPositionItem = NSMenuItem(title: "Reset Paste Bin Position", action: #selector(resetPasteBinPosition), keyEquivalent: "")
+        resetPositionItem.target = self
+        menu.addItem(resetPositionItem)
+        
         // Debug item to show clipboard preview
         let showPreviewItem = NSMenuItem(title: "Show Clipboard Preview (Debug)", action: #selector(showDebugClipboardPreview), keyEquivalent: "d")
         showPreviewItem.target = self
@@ -177,6 +181,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             clipboardHistoryWindow = ClipboardHistoryWindow(historyManager: clipboardHistoryManager)
         }
         clipboardHistoryWindow?.showHistory()
+    }
+    
+    @objc func resetPasteBinPosition() {
+        if clipboardHistoryWindow == nil {
+            clipboardHistoryWindow = ClipboardHistoryWindow(historyManager: clipboardHistoryManager)
+        }
+        clipboardHistoryWindow?.resetToDefaultPosition()
     }
     
     @objc func showDebugClipboardPreview() {

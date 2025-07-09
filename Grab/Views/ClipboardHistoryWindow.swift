@@ -3,6 +3,7 @@ import SwiftUI
 
 class ClipboardHistoryWindow: NSWindow {
     private let historyManager: ClipboardHistoryManager
+    private let windowFrameName = "ClipboardHistoryWindow"
     
     init(historyManager: ClipboardHistoryManager) {
         self.historyManager = historyManager
@@ -44,8 +45,100 @@ class ClipboardHistoryWindow: NSWindow {
         let historyView = ClipboardHistoryView(historyManager: historyManager)
         contentView = NSHostingView(rootView: historyView)
         
-        // Position window
-        center()
+        // Set up frame autosave for position persistence
+        setFrameAutosaveName(windowFrameName)
+        
+        // Position window: use saved position if available, otherwise use ergonomic default
+        if !setFrameUsingName(windowFrameName) {
+            // No saved position - use ergonomic positioning near preview area
+            positionNearPreviewArea()
+        }
+        
+        // Enable automatic frame saving when user moves/resizes
+        isRestorable = true
+    }
+    
+    private func positionNearPreviewArea() {
+        // Use the same positioning logic as ClipboardPreviewWindow for ergonomic flow
+        guard let screen = NSScreen.main else { 
+            center()
+            return 
+        }
+        
+        let screenFrame = screen.frame
+        let visibleFrame = screen.visibleFrame
+        let menuBarHeight = screenFrame.maxY - visibleFrame.maxY
+        let isMenuBarVisible = menuBarHeight > 0
+        
+        // Try to get the status bar button position first
+        if let statusBarRect = getStatusBarRect() {
+            // Position near the status bar, similar to preview window but offset for larger size
+            let systemTrayWidth: CGFloat = 200
+            let safeRightMargin = systemTrayWidth + 20
+            
+            // Position to the left of the preview area to avoid overlap
+            let previewX = statusBarRect.minX - (340 / 2) + (statusBarRect.width / 2) // Preview window X
+            let windowX = previewX - frame.width - 20 // Offset left of preview area
+            let safeX = max(40, min(windowX, screenFrame.maxX - frame.width - safeRightMargin))
+            
+            // Position below menu bar with same logic as preview
+            let menuBarBottom = screenFrame.maxY - menuBarHeight
+            let tightGap: CGFloat = isMenuBarVisible ? 2 : 10
+            let desiredY = isMenuBarVisible ? 
+                menuBarBottom - frame.height - tightGap :
+                screenFrame.maxY - frame.height - tightGap
+            
+            let minSafetyMargin: CGFloat = 5
+            let maxAllowedY = visibleFrame.maxY - frame.height - minSafetyMargin
+            let minAllowedY = visibleFrame.minY + minSafetyMargin
+            
+            let finalWindowY = min(desiredY, maxAllowedY)
+            let safeWindowY = max(finalWindowY, minAllowedY)
+            
+            let windowFrame = NSRect(
+                x: safeX,
+                y: safeWindowY,
+                width: frame.width,
+                height: frame.height
+            )
+            setFrame(windowFrame, display: true)
+        } else {
+            // Fallback: position in upper right area where preview would be
+            let systemTrayWidth: CGFloat = 200
+            let safeRightMargin = systemTrayWidth + 20
+            let windowX = screenFrame.maxX - frame.width - safeRightMargin - 360 // Offset left of preview area
+            
+            let menuBarBottom = screenFrame.maxY - menuBarHeight
+            let tightGap: CGFloat = isMenuBarVisible ? 2 : 10
+            let windowY = isMenuBarVisible ? 
+                menuBarBottom - frame.height - tightGap :
+                screenFrame.maxY - frame.height - tightGap
+            
+            let windowFrame = NSRect(
+                x: max(40, windowX),
+                y: windowY,
+                width: frame.width,
+                height: frame.height
+            )
+            setFrame(windowFrame, display: true)
+        }
+    }
+    
+    private func getStatusBarRect() -> CGRect? {
+        // Try to get the status bar button position
+        if let appDelegate = NSApp.delegate as? AppDelegate,
+           let statusItem = appDelegate.statusItem,
+           let statusButton = statusItem.button {
+            return statusButton.window?.convertToScreen(statusButton.bounds)
+        }
+        return nil
+    }
+    
+    func resetToDefaultPosition() {
+        // Reset to ergonomic positioning and clear saved frame
+        UserDefaults.standard.removeObject(forKey: "NSWindow Frame \(windowFrameName)")
+        positionNearPreviewArea()
+        saveFrame(usingName: windowFrameName)
     }
     
     func showHistory() {

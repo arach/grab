@@ -33,8 +33,9 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             let fileURL = clipboardDir.appendingPathComponent(fileName)
             
             do {
-                // Create directory structure
-                try FileManager.default.createDirectory(at: clipboardDir, withIntermediateDirectories: true)
+                // Create full directory structure including subdirectories
+                let parentDirectory = fileURL.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
                 
                 if let imageData = imageData {
                     // Save image data

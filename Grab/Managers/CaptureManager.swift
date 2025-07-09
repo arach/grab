@@ -33,9 +33,11 @@ class CaptureManager: ObservableObject {
         setupCapturesDirectory()
         loadCaptureHistory()
         
-        // Only request notification permission if we're running in an app bundle
+        // Request notification permission (optional - graceful fallback if denied)
         if isRunningInAppBundle {
             requestNotificationPermission()
+        } else {
+            print("📱 Development mode - skipping notification permission request")
         }
     }
     
@@ -45,34 +47,45 @@ class CaptureManager: ObservableObject {
             return
         }
         
+        print("📱 Checking notification permission status...")
+        
         // Check current permission status first
         UNUserNotificationCenter.current().getNotificationSettings { settings in
-            switch settings.authorizationStatus {
-            case .authorized:
-                print("📱 Notification permission already granted")
-                return
-            case .denied:
-                print("📱 Notification permission denied")
-                return
-            case .notDetermined:
-                // Request permission
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-                    if let error = error {
-                        print("📱 Notification permission request failed: \(error.localizedDescription)")
-                        print("📱 App will continue without notifications")
-                    } else {
-                        print("📱 Notification permission granted: \(granted)")
-                        if !granted {
-                            print("📱 User declined notification permission - app will continue without notifications")
+            DispatchQueue.main.async {
+                print("📱 Current notification authorization status: \(settings.authorizationStatus.rawValue)")
+                print("📱 Alert setting: \(settings.alertSetting.rawValue)")
+                print("📱 Badge setting: \(settings.badgeSetting.rawValue)")
+                print("📱 Sound setting: \(settings.soundSetting.rawValue)")
+                
+                switch settings.authorizationStatus {
+                case .authorized:
+                    print("📱 Notification permission already granted")
+                    return
+                case .denied:
+                    print("📱 Notification permission was previously denied")
+                    return
+                case .notDetermined:
+                    print("📱 Notification permission not determined - requesting now...")
+                    // Request permission with better error handling
+                    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+                        DispatchQueue.main.async {
+                            if let error = error {
+                                print("📱 Notification permission request failed with error: \(error)")
+                                print("📱 Error domain: \(error.localizedDescription)")
+                                print("📱 This is normal for unsigned/development apps")
+                            } else {
+                                print("📱 Notification permission request completed: \(granted ? "GRANTED" : "DENIED")")
+                            }
+                            print("📱 App uses preview windows as primary feedback anyway")
                         }
                     }
+                case .provisional:
+                    print("📱 Notification permission is provisional")
+                case .ephemeral:
+                    print("📱 Notification permission is ephemeral")
+                @unknown default:
+                    print("📱 Unknown notification permission status: \(settings.authorizationStatus.rawValue)")
                 }
-            case .provisional:
-                print("📱 Notification permission provisional")
-            case .ephemeral:
-                print("📱 Notification permission ephemeral")
-            @unknown default:
-                print("📱 Unknown notification permission status")
             }
         }
     }
@@ -338,34 +351,40 @@ class CaptureManager: ObservableObject {
     }
     
     private func showNotification(for capture: Capture) {
-        // Show preview window instead of notification
+        // Always show preview window as primary feedback
         showPreviewWindow(for: capture)
         
+        // Also try to show system notification if permission granted
         guard isRunningInAppBundle else {
-            // Fallback to console output when notifications aren't available
             print("✅ Saved \(capture.type.displayName) capture: \(capture.filename)")
             return
         }
         
-        let content = UNMutableNotificationContent()
-        content.title = "Grab"
-        content.body = "Saved \(capture.type.displayName) capture"
-        content.sound = .default
-        
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-        
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("📱 Failed to show notification: \(error.localizedDescription)")
-                print("📱 This is normal if notification permission was denied")
-                // Fallback to console output if notification fails
-                print("✅ Saved \(capture.type.displayName) capture: \(capture.filename)")
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized else {
+                // No permission - that's fine, preview window is primary UI
+                return
+            }
+            
+            let content = UNMutableNotificationContent()
+            content.title = "Grab"
+            content.body = "Saved \(capture.type.displayName) capture"
+            content.sound = .default
+            
+            let request = UNNotificationRequest(
+                identifier: UUID().uuidString,
+                content: content,
+                trigger: nil
+            )
+            
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error = error {
+                    print("📱 Notification failed: \(error.localizedDescription)")
+                }
             }
         }
+        
+        print("✅ Saved \(capture.type.displayName) capture: \(capture.filename)")
     }
     
     private func showPreviewWindow(for capture: Capture) {
