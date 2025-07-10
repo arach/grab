@@ -33,12 +33,8 @@ class CaptureManager: ObservableObject {
         setupCapturesDirectory()
         loadCaptureHistory()
         
-        // Request notification permission (optional - graceful fallback if denied)
-        if isRunningInAppBundle {
-            requestNotificationPermission()
-        } else {
-            print("📱 Development mode - skipping notification permission request")
-        }
+        // Skip notification permission request - app uses preview windows as primary feedback
+        print("📱 Skipping notification permission request - app uses preview windows as primary feedback")
     }
     
     private func requestNotificationPermission() {

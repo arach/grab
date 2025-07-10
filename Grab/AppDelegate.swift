@@ -1,5 +1,6 @@
 import Cocoa
 import SwiftUI
+import os.log
 
 // Global crash logging function (needed for signal handlers)
 func writeCrashLog(_ message: String) {
@@ -36,6 +37,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var clipboardPreviewWindow: ClipboardPreviewWindow?
     var clipboardHistoryWindow: ClipboardHistoryWindow?
     
+    // Modern macOS logging
+    private let logger = Logger(subsystem: "com.grab.macos", category: "main")
+    
     // Clipboard history management
     var clipboardHistoryManager = ClipboardHistoryManager()
     
@@ -55,18 +59,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Set up crash detection and logging
         setupCrashLogging()
         
+        // Log startup with modern macOS logging
+        logger.info("🚀 Grab app startup - PID: \(getpid(), privacy: .public)")
+        logger.info("📦 Bundle: \(Bundle.main.bundleIdentifier ?? "none", privacy: .public)")
+        logger.info("💾 Available memory: \(self.getAvailableMemory(), privacy: .public)MB")
+        
+        // Also log to file for crash investigation
+        let startupLog = """
+        🚀 === GRAB APP STARTUP ===
+        📅 Startup time: \(Date())
+        📦 Process ID: \(getpid())
+        📦 Running in app bundle: \(isRunningInAppBundle)
+        📦 Bundle ID: \(Bundle.main.bundleIdentifier ?? "none")
+        💾 Available memory: \(getAvailableMemory())MB
+        🔄 Previous session may have ended unexpectedly if no shutdown log exists
+        ===============================
+        """
+        print(startupLog)
+        writeCrashLog(startupLog + "\n")
+        
         // Make this a proper menu bar app (no dock icon)
         NSApp.setActivationPolicy(.accessory)
-        
-        // Debug print to show bundle status
-        print("🚀 Grab app started successfully")
-        print("📦 Running in app bundle: \(isRunningInAppBundle)")
-        print("📦 Process ID: \(getpid())")
-        if let bundleId = Bundle.main.bundleIdentifier {
-            print("📦 Bundle identifier: \(bundleId)")
-        } else {
-            print("📦 No bundle identifier found - running in development mode")
-        }
         
         print("🔧 Initializing managers...")
         captureManager = CaptureManager()
@@ -215,6 +228,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func showClipboardHistory() {
+        logger.info("🔍 Opening clipboard history window")
+        writeCrashLog("🔍 Opening clipboard history at \(Date())\n")
+        
         if clipboardHistoryWindow == nil {
             clipboardHistoryWindow = ClipboardHistoryWindow(historyManager: clipboardHistoryManager)
         }
@@ -263,7 +279,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         📊 Storage Information:
         • Location: ~/Library/Application Support/Grab/clipboard_history/
-        • Current usage: \(formatStorageSize(storageInfo.totalSize))
+        • Current usage: \(formatStorageSize(storageInfo.totalSize)) / 100MB
         • Files stored: \(storageInfo.itemCount)
         • Items in history: \(clipboardHistoryManager.items.count)
         
@@ -277,7 +293,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ⚠️ Data Sensitivity:
         • Clipboard may contain sensitive information
         • Review history regularly and clear when needed
-        • Files persist until manually cleared or app limit reached
+        • Files persist until 100MB limit reached (oldest items removed first)
         """
         
         let alert = NSAlert()
@@ -318,63 +334,68 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc func quitApp() {
-        print("🔄 Application terminating gracefully...")
+        logGracefulShutdown()
         NSApplication.shared.terminate(nil)
+    }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        logGracefulShutdown()
+    }
+    
+    private func logGracefulShutdown() {
+        let shutdownLog = """
+        🔄 === GRACEFUL SHUTDOWN ===
+        📅 Shutdown time: \(Date())
+        📦 Process ID: \(getpid())
+        💾 Final memory usage: \(getMemoryUsage())MB
+        📋 Final clipboard items: \(clipboardHistoryManager.items.count)
+        ✅ App terminated normally
+        =============================
+        """
+        print(shutdownLog)
+        writeCrashLog(shutdownLog + "\n")
     }
     
     // MARK: - Crash Logging and Health Monitoring
     
     private func setupCrashLogging() {
-        // Set up signal handlers for crash detection
+        // Set up minimal signal handlers for crash detection
+        // Note: Signal handlers must be extremely simple to avoid re-entrancy issues
         signal(SIGABRT, { signal in
-            let crashLog = "💥 CRASH DETECTED: SIGABRT (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
-            writeCrashLog(crashLog)
-            print(crashLog)
-            fflush(stdout)
-            exit(1)
+            write(STDERR_FILENO, "💥 CRASH: SIGABRT\n", 16)
+            exit(signal)
         })
         
         signal(SIGSEGV, { signal in
-            let crashLog = "💥 CRASH DETECTED: SIGSEGV (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
-            writeCrashLog(crashLog)
-            print(crashLog)
-            fflush(stdout)
-            exit(1)
+            write(STDERR_FILENO, "💥 CRASH: SIGSEGV\n", 17)
+            exit(signal)
         })
         
         signal(SIGILL, { signal in
-            let crashLog = "💥 CRASH DETECTED: SIGILL (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
-            writeCrashLog(crashLog)
-            print(crashLog)
-            fflush(stdout)
-            exit(1)
+            write(STDERR_FILENO, "💥 CRASH: SIGILL\n", 16)
+            exit(signal)
         })
         
         signal(SIGFPE, { signal in
-            let crashLog = "💥 CRASH DETECTED: SIGFPE (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
-            writeCrashLog(crashLog)
-            print(crashLog)
-            fflush(stdout)
-            exit(1)
+            write(STDERR_FILENO, "💥 CRASH: SIGFPE\n", 16)
+            exit(signal)
         })
         
         signal(SIGBUS, { signal in
-            let crashLog = "💥 CRASH DETECTED: SIGBUS (signal \(signal))\n💥 Stack trace: \(Thread.callStackSymbols)\n💥 Time: \(Date())\n"
-            writeCrashLog(crashLog)
-            print(crashLog)
-            fflush(stdout)
-            exit(1)
+            write(STDERR_FILENO, "💥 CRASH: SIGBUS\n", 16)
+            exit(signal)
         })
         
-        // Set up exception handler
+        // Set up exception handler (this is safer than signal handlers)
         NSSetUncaughtExceptionHandler { exception in
-            let crashLog = "💥 UNCAUGHT EXCEPTION: \(exception)\n💥 Reason: \(exception.reason ?? "Unknown")\n💥 Stack trace: \(exception.callStackSymbols)\n💥 Time: \(Date())\n"
-            writeCrashLog(crashLog)
+            let crashLog = "💥 UNCAUGHT EXCEPTION: \(exception)\n💥 Reason: \(exception.reason ?? "Unknown")\n💥 Time: \(Date())\n"
+            // Use simple print instead of complex logging in exception handler
             print(crashLog)
             fflush(stdout)
         }
         
         print("🛡️ Crash logging initialized")
+        logger.info("🛡️ Crash detection enabled")
         writeCrashLog("📝 Crash logging initialized at \(Date())\n")
     }
     
@@ -389,10 +410,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         formatter.dateFormat = "HH:mm:ss"
         let timestamp = formatter.string(from: Date())
         
-        let healthLog = "💓 Health check [\(timestamp)]: App running normally\n💓 Memory usage: \(self.getMemoryUsage()) MB\n💓 Clipboard items: \(self.clipboardHistoryManager.items.count)\n"
+        let memoryUsage = getMemoryUsage()
+        let availableMemory = getAvailableMemory()
+        let clipboardItems = clipboardHistoryManager.items.count
+        
+        let healthLog = """
+        💓 Health check [\(timestamp)]: PID \(getpid()) running normally
+        💓 Memory usage: \(memoryUsage)MB (available: \(availableMemory)MB)
+        💓 Clipboard items: \(clipboardItems)
+        💓 Pasteboard timer: \(pasteboardTimer != nil ? "active" : "inactive")
+        
+        """
+        
+        // Modern logging with different levels
+        logger.info("💓 Health check: PID \(getpid(), privacy: .public) - Memory: \(memoryUsage, privacy: .public)MB")
         
         print(healthLog)
         writeCrashLog(healthLog)
+        
+        // Check for potential memory pressure
+        if memoryUsage > 200 {
+            let warning = "⚠️ HIGH MEMORY USAGE: \(memoryUsage)MB (might trigger system termination)\n"
+            logger.error("⚠️ HIGH MEMORY USAGE: \(memoryUsage, privacy: .public)MB")
+            print(warning)
+            writeCrashLog(warning)
+        }
+        
+        if availableMemory < 500 {
+            let warning = "⚠️ LOW SYSTEM MEMORY: \(availableMemory)MB available (system under pressure)\n"
+            logger.error("⚠️ LOW SYSTEM MEMORY: \(availableMemory, privacy: .public)MB available")
+            print(warning)
+            writeCrashLog(warning)
+        }
         
         // Check if critical components are still alive
         if self.statusItem == nil {
@@ -410,6 +459,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             print(warning)
             writeCrashLog(warning)
         }
+        if self.pasteboardTimer == nil {
+            let warning = "⚠️ WARNING: Pasteboard timer is nil!\n"
+            print(warning)
+            writeCrashLog(warning)
+        }
     }
     
     private func getMemoryUsage() -> Int {
@@ -424,6 +478,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         if kerr == KERN_SUCCESS {
             return Int(info.resident_size) / 1024 / 1024
+        } else {
+            return 0
+        }
+    }
+    
+    private func getAvailableMemory() -> Int {
+        var info = vm_statistics64()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
+        
+        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+            }
+        }
+        
+        if kerr == KERN_SUCCESS {
+            let freeMemory = Int64(info.free_count) * Int64(vm_kernel_page_size) / (1024 * 1024)
+            return Int(freeMemory)
         } else {
             return 0
         }
@@ -759,6 +831,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Filter out content that's very similar to previous (avoid duplicates)
         let similarity = stringSimilarity(content, lastPasteboardContent)
         if similarity > 0.7 {
+            logger.debug("📋 Skipping similar content (similarity: \(similarity, privacy: .public))")
             return false
         }
         
@@ -787,41 +860,56 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func stringSimilarity(_ str1: String, _ str2: String) -> Double {
+        // Bounds checking to prevent crashes
+        guard !str1.isEmpty || !str2.isEmpty else { return 1.0 }
+        
         let maxLength = max(str1.count, str2.count)
         if maxLength == 0 { return 1.0 }
+        
+        // For very long strings, use a simpler comparison to avoid performance issues
+        if maxLength > 1000 {
+            return str1 == str2 ? 1.0 : 0.0
+        }
         
         let distance = levenshteinDistance(str1, str2)
         return 1.0 - Double(distance) / Double(maxLength)
     }
     
     private func levenshteinDistance(_ str1: String, _ str2: String) -> Int {
+        // Early returns for edge cases
+        if str1.isEmpty { return str2.count }
+        if str2.isEmpty { return str1.count }
+        if str1 == str2 { return 0 }
+        
         let str1Array = Array(str1)
         let str2Array = Array(str2)
         let str1Count = str1Array.count
         let str2Count = str2Array.count
         
-        var matrix = Array(repeating: Array(repeating: 0, count: str2Count + 1), count: str1Count + 1)
+        // Bounds checking
+        guard str1Count > 0, str2Count > 0 else { return max(str1Count, str2Count) }
         
-        for i in 0...str1Count {
-            matrix[i][0] = i
-        }
-        
-        for j in 0...str2Count {
-            matrix[0][j] = j
-        }
+        // Use single array instead of 2D matrix for better memory efficiency
+        var previousRow = Array(0...str2Count)
+        var currentRow = Array(repeating: 0, count: str2Count + 1)
         
         for i in 1...str1Count {
+            currentRow[0] = i
+            
             for j in 1...str2Count {
                 let cost = str1Array[i-1] == str2Array[j-1] ? 0 : 1
-                matrix[i][j] = min(
-                    matrix[i-1][j] + 1,      // deletion
-                    matrix[i][j-1] + 1,      // insertion
-                    matrix[i-1][j-1] + cost  // substitution
+                currentRow[j] = min(
+                    previousRow[j] + 1,      // deletion
+                    currentRow[j-1] + 1,     // insertion  
+                    previousRow[j-1] + cost  // substitution
                 )
             }
+            
+            // Swap rows
+            (previousRow, currentRow) = (currentRow, previousRow)
         }
         
-        return matrix[str1Count][str2Count]
+        return previousRow[str2Count]
     }
     
     private func getImageFromPasteboard() -> Data? {

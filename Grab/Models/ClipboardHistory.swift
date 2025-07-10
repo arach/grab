@@ -125,7 +125,8 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
 
 class ClipboardHistoryManager: ObservableObject {
     @Published var items: [ClipboardItem] = []
-    private let maxItems = 100
+    private let maxStorageMB = 100 // 100MB limit
+    private let maxItems = 1000 // Secondary limit to prevent excessive memory usage
     private let userDefaults = UserDefaults.standard
     private let storageKey = "clipboardHistory"
     
@@ -155,7 +156,7 @@ class ClipboardHistoryManager: ObservableObject {
             // Directory doesn't exist or is empty
         }
         
-        let maxSizeMB = 500 // 500MB limit
+        let maxSizeMB = 100 // 100MB limit
         let maxSizeBytes = Int64(maxSizeMB * 1024 * 1024)
         
         var warning: String? = nil
@@ -175,6 +176,15 @@ class ClipboardHistoryManager: ObservableObject {
         return formatter.string(fromByteCount: bytes)
     }
     
+    private func getCurrentStorageUsage() -> Int64 {
+        let (totalSize, _, _) = Self.getStorageInfo()
+        return totalSize
+    }
+    
+    private func getMaxStorageBytes() -> Int64 {
+        return Int64(maxStorageMB * 1024 * 1024)
+    }
+    
     func addItem(content: String, contentType: String, imageData: Data? = nil) {
         // Don't add duplicates of the most recent item
         if let lastItem = items.first, lastItem.content == content {
@@ -190,18 +200,33 @@ class ClipboardHistoryManager: ObservableObject {
         
         items.insert(newItem, at: 0) // Add to beginning
         
-        // Keep only the most recent items and clean up old files
-        if items.count > maxItems {
-            let itemsToRemove = items.suffix(items.count - maxItems)
-            for item in itemsToRemove {
-                if let fileName = item.dataFileName {
-                    let clipboardDir = Self.getClipboardDirectory()
-                    let fileURL = clipboardDir.appendingPathComponent(fileName)
-                    try? FileManager.default.removeItem(at: fileURL)
-                    print("🗑️ Cleaned up old file: \(fileName)")
+        // Clean up old items based on storage size (100MB limit) and item count (1000 limit)
+        let maxStorageBytes = getMaxStorageBytes()
+        var currentStorageUsage = getCurrentStorageUsage()
+        var removedCount = 0
+        
+        // Remove oldest items until we're under the storage limit or item count limit
+        while (currentStorageUsage > maxStorageBytes || items.count > maxItems) && items.count > 1 {
+            let oldestItem = items.removeLast()
+            removedCount += 1
+            
+            // Clean up data file if it exists
+            if let fileName = oldestItem.dataFileName {
+                let clipboardDir = Self.getClipboardDirectory()
+                let fileURL = clipboardDir.appendingPathComponent(fileName)
+                try? FileManager.default.removeItem(at: fileURL)
+                
+                // Update storage usage
+                if let fileSize = oldestItem.fileSize {
+                    currentStorageUsage -= fileSize
                 }
+                print("🗑️ Cleaned up old file: \(fileName) (freed \(Self.formatBytes(oldestItem.fileSize ?? 0)))")
             }
-            items = Array(items.prefix(maxItems))
+        }
+        
+        if removedCount > 0 {
+            print("🧹 Cleaned up \(removedCount) old items to stay under \(maxStorageMB)MB limit")
+            print("📊 Current storage usage: \(Self.formatBytes(currentStorageUsage)) / \(maxStorageMB)MB")
         }
         
         saveHistory()
