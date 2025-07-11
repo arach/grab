@@ -2,17 +2,19 @@ import Cocoa
 import SwiftUI
 
 class NanoPastebinWindow: NSWindow {
+    static weak var shared: NanoPastebinWindow?
     private var dismissTimer: Timer?
     
     init() {
         print("🎯 NanoPastebinWindow init called")
         print("🎯 About to call super.init")
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 250),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 360),
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        NanoPastebinWindow.shared = self
         print("🎯 super.init completed")
         
         setupWindow()
@@ -20,30 +22,19 @@ class NanoPastebinWindow: NSWindow {
     }
     
     private func setupWindow() {
-        // Window title
-        title = "Nano Pastebin"
-        
-        // Make window floating
+        // Remove window title and chrome
+        titleVisibility = .hidden
+        titlebarAppearsTransparent = true
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
         level = .floating
-        
-        // Window properties
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        
-        // Set minimum and maximum sizes
         minSize = NSSize(width: 400, height: 160)
         maxSize = NSSize(width: 1200, height: 600)
-        
-        // Enable full size content view for modern look
-        styleMask.insert(.fullSizeContentView)
-        titlebarAppearsTransparent = true
-        titleVisibility = .hidden
-        
-        // Keep standard window button positions but hide minimize/zoom
-        standardWindowButton(.miniaturizeButton)?.isHidden = true
-        standardWindowButton(.zoomButton)?.isHidden = true
-        
         // Start positioned off-screen, will be positioned when shown
-        setFrame(NSRect(x: -1000, y: -1000, width: 600, height: 250), display: false)
+        setFrame(NSRect(x: -1000, y: -1000, width: 900, height: 360), display: false)
+        isMovableByWindowBackground = true
     }
     
     func showNearCursor(with items: [ClipboardItem]) {
@@ -90,27 +81,22 @@ class NanoPastebinWindow: NSWindow {
             makeKeyAndOrderFront(nil)
         }
         
-        // TEMPORARILY DISABLED - Auto-dismiss causing crashes
-        // TODO: Fix timer-related crash issue
-        /*
+        // Set up auto-dismiss timer
         dismissTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
             guard let self = self else { return }
-            // Ensure window is still valid before trying to hide
+            // Only hide if still visible and countdown is active
             if self.isVisible {
                 self.hideWithAnimation()
             }
         }
-        */
         
         // Listen for cancel auto-dismiss notification
-        /* Disabled - might be causing retain cycles
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(cancelAutoDismiss),
             name: Notification.Name("CancelNanoPastebinAutoDismiss"),
             object: nil
         )
-        */
     }
     
     private func calculateOptimalPosition(mouseLocation: NSPoint) -> NSRect {
@@ -231,10 +217,26 @@ class NanoPastebinWindow: NSWindow {
     }
     
     override func keyDown(with event: NSEvent) {
+        // Cancel auto-dismiss on any key press
+        cancelAutoDismiss()
+        
         // Check for Escape key
         if event.keyCode == 53 { // 53 is the key code for Escape
             print("🎯 Escape key pressed - dismissing window")
             hideWithAnimation()
+        } 
+        // Check for number keys 1-9
+        else if let char = event.characters, 
+                let number = Int(char),
+                number >= 1 && number <= 9 {
+            print("🎯 Number key \(number) pressed")
+            
+            // Post notification with the number
+            NotificationCenter.default.post(
+                name: Notification.Name("NanoPastebinNumberPressed"),
+                object: nil,
+                userInfo: ["number": number]
+            )
         } else {
             super.keyDown(with: event)
         }

@@ -40,6 +40,16 @@ struct NanoPastebinView: View {
     @State private var isCountdownActive = true
     @State private var numberKeyHandler: Any?
     
+    // Track total items vs displayed
+    private var totalItemsCount: Int {
+        items.count
+    }
+    
+    private var displayedItemsCount: Int {
+        categorizedItems.logs.count + categorizedItems.prompts.count + 
+        categorizedItems.images.count + categorizedItems.other.count
+    }
+    
     // Get all items in order with their number assignments
     private var numberedItems: [(number: Int, item: ClipboardItem)] {
         var result: [(number: Int, item: ClipboardItem)] = []
@@ -72,27 +82,27 @@ struct NanoPastebinView: View {
         var images: [ClipboardItem] = []
         var other: [ClipboardItem] = []
         
-        print("🎯 Categorizing \(items.count) items (max 3 per category)")
+        print("🎯 Categorizing \(items.count) items (max 10 per category)")
         
-        // Go through items and categorize them, limiting to 3 per category
+        // Go through items and categorize them, limiting to 10 per category
         for item in items {
-            if item.isImage && images.count < 3 {
+            if item.isImage && images.count < 10 {
                 images.append(item)
                 print("  📸 Image: \(item.content.prefix(30))...")
-            } else if item.isLog && logs.count < 3 {
+            } else if item.isLog && logs.count < 10 {
                 logs.append(item)
                 print("  📝 Log: \(item.content.prefix(30))...")
-            } else if item.isPrompt && prompts.count < 3 {
+            } else if item.isPrompt && prompts.count < 10 {
                 prompts.append(item)
                 print("  💬 Prompt: \(item.content.prefix(30))...")
-            } else if !item.isImage && !item.isLog && !item.isPrompt && other.count < 3 {
+            } else if !item.isImage && !item.isLog && !item.isPrompt && other.count < 10 {
                 // Only add to "other" if it doesn't fit the other categories
                 other.append(item)
                 print("  📄 Other: \(item.content.prefix(30))...")
             }
             
             // Early exit if all categories are full
-            if logs.count >= 3 && prompts.count >= 3 && images.count >= 3 && other.count >= 3 {
+            if logs.count >= 10 && prompts.count >= 10 && images.count >= 10 && other.count >= 10 {
                 print("✅ All categories full, stopping categorization")
                 break
             }
@@ -245,6 +255,15 @@ struct NanoPastebinView: View {
                     .foregroundColor(.gray)
                     .padding(.leading, 16)
                 Spacer()
+                
+                // Show count indicator if not all items are displayed
+                if totalItemsCount > displayedItemsCount {
+                    Text("Showing \(displayedItemsCount) of \(totalItemsCount) items")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(.orange.opacity(0.8))
+                    Spacer()
+                }
+                
                 Text("⌘+C to copy · ⌘+V to paste")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(.gray)
@@ -612,6 +631,13 @@ struct PastebinCard: View {
                 Text(timeAgo)
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
                     .foregroundColor(.gray)
+                Button(action: { onCopy() }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.gray)
+                        .help("Copy to clipboard")
+                }
+                .buttonStyle(.plain)
             }
             Text(content)
                 .font(.system(size: 13, weight: .regular, design: .monospaced))
@@ -629,13 +655,39 @@ struct PastebinCard: View {
                 )
                 .shadow(color: color.opacity(isHovered ? 0.18 : 0.08), radius: isHovered ? 8 : 4, x: 0, y: 2)
         )
-        .onTapGesture { onCopy() }
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            if hovering {
+                NanoPastebinWindow.shared?.isMovableByWindowBackground = false
+                NSCursor.pointingHand.push()
+            } else {
+                NanoPastebinWindow.shared?.isMovableByWindowBackground = true
+                NSCursor.pop()
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
         .padding(.bottom, 10)
+        .draggable(content) {
+            // Drag preview for text
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(color.opacity(0.8))
+                    Text("#\(index)")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.gray)
+                }
+                Text(content)
+                    .font(.system(size: 13, weight: .regular, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.95))
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(.windowBackgroundColor)))
+            .frame(width: 220)
+        }
     }
 }
 
@@ -648,6 +700,20 @@ struct ImagePastebinCard: View {
     let color: Color
     let onCopy: () -> Void
     @State private var isHovered = false
+    
+    // Compute file URL for drag
+    var fileURL: URL? {
+        // Try to get a temp file URL for the image
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileName = "grab-npb-image-\(UUID().uuidString.prefix(8)).png"
+        let url = tempDir.appendingPathComponent(fileName)
+        do {
+            try imageData.write(to: url)
+            return url
+        } catch {
+            return nil
+        }
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -662,8 +728,14 @@ struct ImagePastebinCard: View {
                 Text(timeAgo)
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
                     .foregroundColor(.gray)
+                Button(action: { onCopy() }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.gray)
+                        .help("Copy image to clipboard")
+                }
+                .buttonStyle(.plain)
             }
-            
             // Image preview
             Image(nsImage: image)
                 .resizable()
@@ -674,14 +746,6 @@ struct ImagePastebinCard: View {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
                 )
-                .draggable(imageData) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 100, height: 100)
-                        .cornerRadius(6)
-                        .shadow(radius: 4)
-                }
         }
         .padding(14)
         .background(
@@ -693,13 +757,39 @@ struct ImagePastebinCard: View {
                 )
                 .shadow(color: color.opacity(isHovered ? 0.18 : 0.08), radius: isHovered ? 8 : 4, x: 0, y: 2)
         )
-        .onTapGesture { onCopy() }
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            if hovering {
+                NanoPastebinWindow.shared?.isMovableByWindowBackground = false
+                NSCursor.pointingHand.push()
+            } else {
+                NanoPastebinWindow.shared?.isMovableByWindowBackground = true
+                NSCursor.pop()
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
         .padding(.bottom, 10)
+        .ifLet(fileURL) { view, url in
+            view.draggable(url) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 100, height: 100)
+                    .cornerRadius(6)
+                    .shadow(radius: 4)
+            }
+        }
+    }
+}
+
+// Helper for conditional modifier
+extension View {
+    func ifLet<T, Content: View>(_ value: T?, transform: (Self, T) -> Content) -> some View {
+        if let value = value {
+            return AnyView(transform(self, value))
+        } else {
+            return AnyView(self)
+        }
     }
 }
 

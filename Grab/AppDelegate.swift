@@ -34,7 +34,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
     var hotkeyManager: HotkeyManager!
     var capturePanel: CaptureWindow?
     var previewWindow: CapturePreviewWindow?
-    // var clipboardPreviewWindow: ClipboardPreviewWindow? // REMOVED - Quick Paste feature disabled
+    var clipboardPreviewWindow: ClipboardPreviewWindow?
     var clipboardHistoryWindow: ClipboardHistoryWindow?
     var nanoPastebinWindow: NanoPastebinWindow?
     
@@ -288,11 +288,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
     private func showNanoPastebinInternal() {
         logger.info("🎯 showNanoPastebinInternal called - invocation #\(self.nanoPastebinInvocationCount)")
         
+        // Log total items in clipboard history
+        let totalHistoryItems = clipboardHistoryManager.items.count
+        logger.info("📚 Total clipboard history: \(totalHistoryItems, privacy: .public) items")
+        
+        let itemsToShow = getSmartClipboardItems()
+        logger.info("📤 Sending \(itemsToShow.count, privacy: .public) items to Nano Pastebin")
+        
         // Reuse the same window instance if possible
         if let existingWindow = self.nanoPastebinWindow {
             logger.info("🎯 Reusing existing window")
             // Just show it again with new items
-            existingWindow.showNearCursor(with: getSmartClipboardItems())
+            existingWindow.showNearCursor(with: itemsToShow)
         } else {
             logger.info("🎯 Creating new NanoPastebinWindow")
             // Create the window only once
@@ -300,7 +307,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
             self.nanoPastebinWindow = window
             
             logger.info("🎯 Showing NanoPastebinWindow")
-            window.showNearCursor(with: getSmartClipboardItems())
+            window.showNearCursor(with: itemsToShow)
         }
         
         logger.info("🎯 showNanoPastebinInternal completed")
@@ -326,8 +333,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         let allItems = clipboardHistoryManager.items
         logger.info("📋 Total clipboard items: \(allItems.count, privacy: .public)")
         
-        // Take the most recent 25 items to process
-        let recentItems = Array(allItems.prefix(25))
+        // Take the most recent 100 items to process (increased from 25)
+        let recentItems = Array(allItems.prefix(100))
         logger.info("🔍 Processing \(recentItems.count) recent items for Nano Pastebin")
         
         // Return the recent items - NanoPastebinView will handle categorization and limiting
@@ -343,17 +350,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         // Get current clipboard content or use sample data
         let pasteboard = NSPasteboard.general
         
-        if getImageFromPasteboard() != nil {
+        if let imageData = getImageFromPasteboard() {
             // Show image preview
-            // showClipboardPreview(content: "Debug Image Preview", contentType: "image", imageData: imageData) // Quick Paste removed
+            showClipboardPreview(content: "Debug Image Preview", contentType: "image", imageData: imageData)
         } else if let content = pasteboard.string(forType: .string), !content.isEmpty {
             // Show text content preview
-            _ = determineContentType(content: content)
-            // showClipboardPreview(content: content, contentType: contentType, imageData: nil) // Quick Paste removed
+            let contentType = determineContentType(content: content)
+            showClipboardPreview(content: content, contentType: contentType, imageData: nil)
         } else {
             // Show sample preview
-            _ = "This is a debug preview of the clipboard overlay. You can see how it looks and behaves without waiting for actual clipboard changes."
-            // showClipboardPreview(content: sampleContent, contentType: "text", imageData: nil) // Quick Paste removed
+            let sampleContent = "This is a debug preview of the clipboard overlay. You can see how it looks and behaves without waiting for actual clipboard changes."
+            showClipboardPreview(content: sampleContent, contentType: "text", imageData: nil)
         }
     }
     
@@ -941,8 +948,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
             // Add to clipboard history
             clipboardHistoryManager.addItem(content: currentContent, contentType: contentType, imageData: nil)
             
-            // Show brief preview - DISABLED per user request
-            // showClipboardPreview(content: currentContent, contentType: contentType, imageData: nil)
+            // Show brief preview
+            showClipboardPreview(content: currentContent, contentType: contentType, imageData: nil)
             
             // Also send to Tauri app if running
             sendClipboardContentToTauri(content: currentContent)
@@ -952,7 +959,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
             let fileName = fileURL.lastPathComponent
             print("📋 New file copied to clipboard: \(fileName)")
             clipboardHistoryManager.addItem(content: fileName, contentType: "file", imageData: nil)
-            // showClipboardPreview(content: fileName, contentType: "file", imageData: nil)
+            showClipboardPreview(content: fileName, contentType: "file", imageData: nil)
             
         } else if let imageData = getImageFromPasteboard() {
             // Image content (lowest priority - often intermediate in workflows)
@@ -966,7 +973,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
             
             print("📋 New image copied to clipboard")
             clipboardHistoryManager.addItem(content: "Image (\(formatBytes(imageData.count)))", contentType: "image", imageData: imageData)
-            // showClipboardPreview(content: "Image", contentType: "image", imageData: imageData)
+            showClipboardPreview(content: "Image (\(formatBytes(imageData.count)))", contentType: "image", imageData: imageData)
         }
     }
     
@@ -1110,12 +1117,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         return nil
     }
     
-    // REMOVED - Quick Paste feature disabled
-    /*
     private func showClipboardPreview(content: String, contentType: String, imageData: Data?) {
-        // This feature has been disabled
+        // Create window if needed
+        if clipboardPreviewWindow == nil {
+            clipboardPreviewWindow = ClipboardPreviewWindow()
+        }
+        
+        // Show the preview with click handler to open clipboard history
+        clipboardPreviewWindow?.showPreview(content: content, contentType: contentType, imageData: imageData) { [weak self] in
+            self?.showClipboardHistory()
+        }
     }
-    */
     
     private func sendClipboardContentToTauri(content: String) {
         guard isTauriAppRunning(appName: "grab-actions") else {
