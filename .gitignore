@@ -121,3 +121,4 @@ Temporary Items
 *.log
 .vscode/
 .idea/
+.claude/settings.local.json

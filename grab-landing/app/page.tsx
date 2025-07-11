@@ -58,7 +58,7 @@ export default function GrabLandingPage() {
           </h1>
 
           <p className="text-xl text-gray-400 mb-8 max-w-3xl mx-auto leading-relaxed">
-            Grab instantly surfaces your last prompts, logs, and images right where you're working. No more context
+            Grab instantly surfaces your last prompts, logs, and images right where you&apos;re working. No more context
             switching. No more lost clipboard history. Just pure workflow velocity.
           </p>
 
@@ -210,7 +210,7 @@ export default function GrabLandingPage() {
               </div>
               <h3 className="font-mono font-bold text-lg mb-2">Smart Previews</h3>
               <p className="text-gray-400 text-sm leading-relaxed">
-                Rich previews for code, images, and text. See exactly what you're copying before you paste.
+                Rich previews for code, images, and text. See exactly what you&apos;re copying before you paste.
               </p>
             </Card>
 
@@ -252,7 +252,7 @@ export default function GrabLandingPage() {
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-4xl font-mono font-bold mb-4">Ready to accelerate your workflow?</h2>
           <p className="text-gray-400 text-lg mb-8 max-w-2xl mx-auto">
-            Join developers who've eliminated context switching from their AI workflows. Download Grab and experience
+            Join developers who&apos;ve eliminated context switching from their AI workflows. Download Grab and experience
             the difference.
           </p>
 

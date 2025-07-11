@@ -15,7 +15,22 @@
       "Bash(find:*)",
       "Bash(cp:*)",
       "Bash(swift build:*)",
-      "Bash(swift package:*)"
+      "Bash(swift package:*)",
+      "Bash(./.build/debug/Grab:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git rm:*)",
+      "Bash(mkdir:*)",
+      "Bash(npx create-next-app:*)",
+      "Bash(npx --yes create-next-app@latest . --ts --tailwind --app --eslint --no-src --import-alias '@/*' --no-turbo)",
+      "Bash(pnpm init:*)",
+      "Bash(pnpm install:*)",
+      "Bash(mv:*)",
+      "Bash(npm:*)",
+      "Bash(touch:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm build:*)"
     ],
     "deny": []
   }
