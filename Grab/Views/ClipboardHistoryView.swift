@@ -201,9 +201,15 @@ struct ClipboardHistoryView: View {
     }
     
     private func copyToClipboard(_ content: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(content, forType: .string)
+        // Use the safe copy method from AppDelegate to prevent feedback loops
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            appDelegate.copyToClipboardSafely(content)
+        } else {
+            // Fallback to direct clipboard access
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(content, forType: .string)
+        }
     }
 }
 
@@ -213,6 +219,7 @@ struct ClipboardHistoryItemView: View {
     let onDelete: () -> Void
     
     @State private var isHovered = false
+    @State private var isExpanded = false
     
     private var contentTypeColor: Color {
         switch item.contentType.lowercased() {
@@ -263,11 +270,28 @@ struct ClipboardHistoryItemView: View {
                 
                 // Content
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.displayContent)
-                        .font(.system(size: 11, weight: .regular, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.8))
-                        .lineLimit(4)
-                        .multilineTextAlignment(.leading)
+                    HStack {
+                        Text(isExpanded ? item.content : item.displayContent)
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.8))
+                            .lineLimit(isExpanded ? nil : 4)
+                            .multilineTextAlignment(.leading)
+                            .textSelection(.enabled) // Allow text selection when expanded
+                        
+                        if !isExpanded && item.content.count > 200 {
+                            // Show expand indicator if content is truncated
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isExpanded.toggle()
+                                }
+                            }) {
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 8, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.4))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                     
                     HStack {
                         Text(item.timeAgo)
@@ -275,6 +299,24 @@ struct ClipboardHistoryItemView: View {
                             .foregroundColor(.white.opacity(0.4))
                         
                         Spacer()
+                        
+                        // Show collapse button when expanded
+                        if isExpanded {
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isExpanded = false
+                                }
+                            }) {
+                                HStack(spacing: 2) {
+                                    Text("COLLAPSE")
+                                        .font(.system(size: 7, weight: .medium, design: .monospaced))
+                                    Image(systemName: "chevron.up")
+                                        .font(.system(size: 6, weight: .medium))
+                                }
+                                .foregroundColor(.white.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
                         
                         Text(item.contentType.uppercased())
                             .font(.system(size: 8, weight: .semibold, design: .monospaced))
@@ -363,10 +405,10 @@ struct ClipboardHistoryItemView: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(.white.opacity(isHovered ? 0.06 : 0.03))
+                .fill(Color.white.opacity(isHovered ? 0.06 : 0.03))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(.white.opacity(0.08), lineWidth: 0.5)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
                 )
         )
         .onHover { hovering in
@@ -375,6 +417,13 @@ struct ClipboardHistoryItemView: View {
             }
         }
         .onTapGesture {
+            // Single click toggles expansion
+            withAnimation(.easeInOut(duration: 0.25)) {
+                isExpanded.toggle()
+            }
+        }
+        .onTapGesture(count: 2) {
+            // Double click copies content
             onCopy()
         }
     }
@@ -386,7 +435,7 @@ struct ClipboardHistoryItemView: View {
         savePanel.showsTagField = false
         
         // Set default filename and extension based on content type
-        let fileExtension = getFileExtension(for: item.contentType)
+        _ = getFileExtension(for: item.contentType)
         let defaultName = "clipboard_\(item.contentType)_\(item.timestamp.formatted(.dateTime.hour().minute()))"
         savePanel.nameFieldStringValue = defaultName
         savePanel.allowedContentTypes = [getUTType(for: item.contentType)]

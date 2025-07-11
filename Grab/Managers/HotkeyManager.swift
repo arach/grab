@@ -2,15 +2,21 @@ import Foundation
 import Carbon
 import AppKit
 
+protocol HotkeyManagerDelegate: AnyObject {
+    func showNanoPastebin()
+}
+
 class HotkeyManager {
     private let captureManager: CaptureManager
     private var hotkeys: [EventHotKeyRef?] = []
+    weak var delegate: HotkeyManagerDelegate?
     
     private enum HotkeyID: UInt32 {
         case captureScreen = 1
         case captureWindow = 2
         case captureSelection = 3
         case saveClipboard = 4
+        case showNanoPastebin = 5
     }
     
     init(captureManager: CaptureManager) {
@@ -37,6 +43,7 @@ class HotkeyManager {
         registerHotkey(.captureWindow, keyCode: 13, modifiers: UInt32(cmdKey | shiftKey))
         registerHotkey(.captureSelection, keyCode: 0, modifiers: UInt32(cmdKey | shiftKey))
         registerHotkey(.saveClipboard, keyCode: 8, modifiers: UInt32(cmdKey | shiftKey))
+        registerHotkey(.showNanoPastebin, keyCode: 5, modifiers: UInt32(cmdKey | optionKey | controlKey | shiftKey)) // Hyper+G
     }
     
     private func registerHotkey(_ hotkeyID: HotkeyID, keyCode: UInt32, modifiers: UInt32) {
@@ -71,6 +78,8 @@ class HotkeyManager {
             captureManager.captureSelection()
         case .saveClipboard:
             captureManager.saveClipboard()
+        case .showNanoPastebin:
+            delegate?.showNanoPastebin()
         }
     }
     

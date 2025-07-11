@@ -5,6 +5,11 @@ class ClipboardHistoryWindow: NSWindow {
     private let historyManager: ClipboardHistoryManager
     private let windowFrameName = "ClipboardHistoryWindow"
     
+    // Shadow state management
+    private var isShadowed = false
+    private var fullSizeFrame: NSRect = .zero
+    private var titleBarHeight: CGFloat = 28 // Standard macOS title bar height
+    
     init(historyManager: ClipboardHistoryManager) {
         self.historyManager = historyManager
         
@@ -23,7 +28,7 @@ class ClipboardHistoryWindow: NSWindow {
         level = .floating
         isOpaque = false
         backgroundColor = NSColor.clear // Fully transparent window background
-        hasShadow = false // Let SwiftUI handle shadows for the content
+        hasShadow = true // Enable shadow for better visual depth
         
         // Modern window appearance
         titlebarAppearsTransparent = true
@@ -56,6 +61,85 @@ class ClipboardHistoryWindow: NSWindow {
         
         // Enable automatic frame saving when user moves/resizes
         isRestorable = true
+        
+        // Add custom title bar click handling
+        setupTitleBarInteraction()
+    }
+    
+    private func setupTitleBarInteraction() {
+        // Create a custom title bar view to capture clicks
+        if let titleBarView = standardWindowButton(.closeButton)?.superview {
+            // Add gesture recognizers for title bar interaction
+            let doubleClickGesture = NSClickGestureRecognizer(target: self, action: #selector(titleBarDoubleClicked))
+            doubleClickGesture.numberOfClicksRequired = 2
+            doubleClickGesture.buttonMask = 1 // Left mouse button
+            titleBarView.addGestureRecognizer(doubleClickGesture)
+            
+            // Add middle click gesture
+            let middleClickGesture = NSClickGestureRecognizer(target: self, action: #selector(titleBarMiddleClicked))
+            middleClickGesture.numberOfClicksRequired = 1
+            middleClickGesture.buttonMask = 4 // Middle mouse button
+            titleBarView.addGestureRecognizer(middleClickGesture)
+        }
+    }
+    
+    @objc private func titleBarDoubleClicked() {
+        toggleShadowMode()
+    }
+    
+    @objc private func titleBarMiddleClicked() {
+        toggleShadowMode()
+    }
+    
+    private func toggleShadowMode() {
+        if isShadowed {
+            unshadowWindow()
+        } else {
+            shadowWindow()
+        }
+    }
+    
+    private func shadowWindow() {
+        guard !isShadowed else { return }
+        
+        // Store the current full frame
+        fullSizeFrame = frame
+        
+        // Calculate new shadowed frame (only title bar height)
+        let shadowedFrame = NSRect(
+            x: frame.origin.x,
+            y: frame.origin.y + frame.height - titleBarHeight,
+            width: frame.width,
+            height: titleBarHeight
+        )
+        
+        // Animate to shadowed state
+        isShadowed = true
+        
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animator().setFrame(shadowedFrame, display: true)
+        }
+        
+        // Hide content view when shadowed
+        contentView?.isHidden = true
+    }
+    
+    private func unshadowWindow() {
+        guard isShadowed else { return }
+        
+        // Show content view before expanding
+        contentView?.isHidden = false
+        
+        // Animate back to full size
+        isShadowed = false
+        
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animator().setFrame(fullSizeFrame, display: true)
+        }
     }
     
     private func positionNearPreviewArea() {
@@ -142,11 +226,20 @@ class ClipboardHistoryWindow: NSWindow {
     }
     
     func showHistory() {
+        // If shadowed, unshadow first
+        if isShadowed {
+            unshadowWindow()
+        }
         // Show window with animation
         showWithAnimation()
     }
     
     func hideHistory() {
+        // If shadowed, restore to full size before hiding
+        if isShadowed {
+            isShadowed = false
+            contentView?.isHidden = false
+        }
         // Hide window with animation
         hideWithAnimation()
     }
@@ -185,6 +278,12 @@ class ClipboardHistoryWindow: NSWindow {
         // Handle Escape key to close window
         if event.keyCode == 53 { // Escape key
             hideHistory()
+            return
+        }
+        
+        // Handle 'S' key for shadow toggle (Cmd+S)
+        if event.keyCode == 1 && event.modifierFlags.contains(.command) { // 'S' key with Cmd
+            toggleShadowMode()
             return
         }
         

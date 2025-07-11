@@ -28,17 +28,18 @@ func writeCrashLog(_ message: String) {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
     var statusItem: NSStatusItem?
     var captureManager: CaptureManager!
     var hotkeyManager: HotkeyManager!
     var capturePanel: CaptureWindow?
     var previewWindow: CapturePreviewWindow?
-    var clipboardPreviewWindow: ClipboardPreviewWindow?
+    // var clipboardPreviewWindow: ClipboardPreviewWindow? // REMOVED - Quick Paste feature disabled
     var clipboardHistoryWindow: ClipboardHistoryWindow?
+    var nanoPastebinWindow: NanoPastebinWindow?
     
     // Modern macOS logging
-    private let logger = Logger(subsystem: "com.grab.macos", category: "main")
+    let logger = Logger(subsystem: "com.grab.macos", category: "main")
     
     // Clipboard history management
     var clipboardHistoryManager = ClipboardHistoryManager()
@@ -49,6 +50,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var lastPasteboardChangeCount: Int = 0
     var lastChangeTime: Date = Date()
     var recentChanges: [Date] = []
+    
+    // Advanced filtering for multi-step clipboard operations
+    var pendingChanges: [Date: NSPasteboard.PasteboardType] = [:]
+    var lastImageTime: Date?
+    var lastTextTime: Date?
+    
+    // Feedback prevention
+    var isInternalCopy = false
+    var internalCopyContent: String = ""
     
     // Check if we're running in a proper app bundle
     private var isRunningInAppBundle: Bool {
@@ -62,7 +72,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Log startup with modern macOS logging
         logger.info("🚀 Grab app startup - PID: \(getpid(), privacy: .public)")
         logger.info("📦 Bundle: \(Bundle.main.bundleIdentifier ?? "none", privacy: .public)")
-        logger.info("💾 Available memory: \(self.getAvailableMemory(), privacy: .public)MB")
+        let memoryStats = getMemoryStats()
+        logger.info("💾 Available memory: \(self.formatMemory(memoryStats.available), privacy: .public)")
         
         // Also log to file for crash investigation
         let startupLog = """
@@ -71,7 +82,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         📦 Process ID: \(getpid())
         📦 Running in app bundle: \(isRunningInAppBundle)
         📦 Bundle ID: \(Bundle.main.bundleIdentifier ?? "none")
-        💾 Available memory: \(getAvailableMemory())MB
+        💾 Available memory: \(formatMemory(memoryStats.available))
         🔄 Previous session may have ended unexpectedly if no shutdown log exists
         ===============================
         """
@@ -86,6 +97,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         print("✅ CaptureManager initialized")
         
         hotkeyManager = HotkeyManager(captureManager: captureManager)
+        hotkeyManager.delegate = self
         print("✅ HotkeyManager initialized")
         
         print("🔧 Setting up UI components...")
@@ -175,6 +187,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Storage info
         menu.addItem(NSMenuItem.separator())
         
+        // TEST: Add menu item for Nano Pastebin
+        let nanoPastebinItem = NSMenuItem(title: "TEST: Show Nano Pastebin", action: #selector(showNanoPastebinFromMenu), keyEquivalent: "")
+        nanoPastebinItem.target = self
+        menu.addItem(nanoPastebinItem)
+        
         let storageItem = NSMenuItem(title: "Storage & Privacy Info", action: #selector(showStorageInfo), keyEquivalent: "")
         storageItem.target = self
         menu.addItem(storageItem)
@@ -244,21 +261,99 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         clipboardHistoryWindow?.resetToDefaultPosition()
     }
     
+    // MARK: - Nano Pastebin
+    
+    private var nanoPastebinInvocationCount = 0
+    
+    func showNanoPastebin() {
+        nanoPastebinInvocationCount += 1
+        logger.info("🎯 showNanoPastebin called - invocation #\(self.nanoPastebinInvocationCount, privacy: .public)")
+        
+        // Log thread and execution context
+        logger.info("🎯 Current thread: \(Thread.current, privacy: .public)")
+        logger.info("🎯 Is main thread: \(Thread.isMainThread, privacy: .public)")
+        
+        // Check if we're already on main thread
+        if Thread.isMainThread {
+            logger.info("🎯 Already on main thread, calling directly")
+            showNanoPastebinInternal()
+        } else {
+            logger.info("🎯 Not on main thread, dispatching to main")
+            DispatchQueue.main.async { [weak self] in
+                self?.showNanoPastebinInternal()
+            }
+        }
+    }
+    
+    private func showNanoPastebinInternal() {
+        logger.info("🎯 showNanoPastebinInternal called - invocation #\(self.nanoPastebinInvocationCount)")
+        
+        // Reuse the same window instance if possible
+        if let existingWindow = self.nanoPastebinWindow {
+            logger.info("🎯 Reusing existing window")
+            // Just show it again with new items
+            existingWindow.showNearCursor(with: getSmartClipboardItems())
+        } else {
+            logger.info("🎯 Creating new NanoPastebinWindow")
+            // Create the window only once
+            let window = NanoPastebinWindow()
+            self.nanoPastebinWindow = window
+            
+            logger.info("🎯 Showing NanoPastebinWindow")
+            window.showNearCursor(with: getSmartClipboardItems())
+        }
+        
+        logger.info("🎯 showNanoPastebinInternal completed")
+    }
+    
+    private enum ClipboardCategory: String, CaseIterable {
+        case image, log, prompt, code, url
+        case other
+    }
+
+    private func categorize(_ item: ClipboardItem) -> ClipboardCategory {
+        switch item.contentType.lowercased() {
+        case "image": return .image
+        case "log": return .log
+        case "prompt": return .prompt
+        case "code": return .code
+        case "url": return .url
+        default: return .other
+        }
+    }
+
+    private func getSmartClipboardItems() -> [ClipboardItem] {
+        let allItems = clipboardHistoryManager.items
+        logger.info("📋 Total clipboard items: \(allItems.count, privacy: .public)")
+        
+        // Take the most recent 25 items to process
+        let recentItems = Array(allItems.prefix(25))
+        logger.info("🔍 Processing \(recentItems.count) recent items for Nano Pastebin")
+        
+        // Return the recent items - NanoPastebinView will handle categorization and limiting
+        return recentItems
+    }
+    
+    @objc func showNanoPastebinFromMenu() {
+        logger.info("🎯 showNanoPastebinFromMenu called - testing menu trigger")
+        showNanoPastebin()
+    }
+    
     @objc func showDebugClipboardPreview() {
         // Get current clipboard content or use sample data
         let pasteboard = NSPasteboard.general
         
-        if let imageData = getImageFromPasteboard() {
+        if getImageFromPasteboard() != nil {
             // Show image preview
-            showClipboardPreview(content: "Debug Image Preview", contentType: "image", imageData: imageData)
+            // showClipboardPreview(content: "Debug Image Preview", contentType: "image", imageData: imageData) // Quick Paste removed
         } else if let content = pasteboard.string(forType: .string), !content.isEmpty {
             // Show text content preview
-            let contentType = determineContentType(content: content)
-            showClipboardPreview(content: content, contentType: contentType, imageData: nil)
+            _ = determineContentType(content: content)
+            // showClipboardPreview(content: content, contentType: contentType, imageData: nil) // Quick Paste removed
         } else {
             // Show sample preview
-            let sampleContent = "This is a debug preview of the clipboard overlay. You can see how it looks and behaves without waiting for actual clipboard changes."
-            showClipboardPreview(content: sampleContent, contentType: "text", imageData: nil)
+            _ = "This is a debug preview of the clipboard overlay. You can see how it looks and behaves without waiting for actual clipboard changes."
+            // showClipboardPreview(content: sampleContent, contentType: "text", imageData: nil) // Quick Paste removed
         }
     }
     
@@ -347,7 +442,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         🔄 === GRACEFUL SHUTDOWN ===
         📅 Shutdown time: \(Date())
         📦 Process ID: \(getpid())
-        💾 Final memory usage: \(getMemoryUsage())MB
+        💾 Final memory usage: \(formatMemory(getMemoryUsage()))
         📋 Final clipboard items: \(clipboardHistoryManager.items.count)
         ✅ App terminated normally
         =============================
@@ -411,34 +506,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let timestamp = formatter.string(from: Date())
         
         let memoryUsage = getMemoryUsage()
-        let availableMemory = getAvailableMemory()
+        let memoryStats = getMemoryStats()
         let clipboardItems = clipboardHistoryManager.items.count
         
-        let healthLog = """
-        💓 Health check [\(timestamp)]: PID \(getpid()) running normally
-        💓 Memory usage: \(memoryUsage)MB (available: \(availableMemory)MB)
-        💓 Clipboard items: \(clipboardItems)
-        💓 Pasteboard timer: \(pasteboardTimer != nil ? "active" : "inactive")
+        // Determine health status and heart emoji based on system state
+        let (healthEmoji, healthDescription) = getHealthStatus(appMemory: memoryUsage, availableMemory: memoryStats.available)
         
-        """
+        // Compact one-line health log with detailed memory info and personality
+        logger.info("\(healthEmoji) Health check [\(timestamp, privacy: .public)]: PID \(getpid(), privacy: .public) | App: \(self.formatMemory(memoryUsage), privacy: .public) | Memory - Free: \(self.formatMemory(memoryStats.free), privacy: .public), Available: \(self.formatMemory(memoryStats.available), privacy: .public) (Inactive: \(self.formatMemory(memoryStats.inactive), privacy: .public), Purgeable: \(self.formatMemory(memoryStats.purgeable), privacy: .public)) | Clipboard: \(clipboardItems, privacy: .public) items | Timer: \(self.pasteboardTimer != nil ? "active" : "inactive", privacy: .public) | Status: \(healthDescription, privacy: .public)")
         
-        // Modern logging with different levels
-        logger.info("💓 Health check: PID \(getpid(), privacy: .public) - Memory: \(memoryUsage, privacy: .public)MB")
+        let healthLog = "\(healthEmoji) Health check [\(timestamp)]: PID \(getpid()) | App: \(formatMemory(memoryUsage)) | Memory - Free: \(formatMemory(memoryStats.free)), Available: \(formatMemory(memoryStats.available)) (Inactive: \(formatMemory(memoryStats.inactive)), Purgeable: \(formatMemory(memoryStats.purgeable))) | Clipboard: \(clipboardItems) items | Timer: \(self.pasteboardTimer != nil ? "active" : "inactive") | Status: \(healthDescription)\n"
         
         print(healthLog)
         writeCrashLog(healthLog)
         
         // Check for potential memory pressure
         if memoryUsage > 200 {
-            let warning = "⚠️ HIGH MEMORY USAGE: \(memoryUsage)MB (might trigger system termination)\n"
-            logger.error("⚠️ HIGH MEMORY USAGE: \(memoryUsage, privacy: .public)MB")
+            let warning = "⚠️ HIGH MEMORY USAGE: \(formatMemory(memoryUsage)) (might trigger system termination)\n"
+            logger.error("⚠️ HIGH MEMORY USAGE: \(self.formatMemory(memoryUsage), privacy: .public)")
             print(warning)
             writeCrashLog(warning)
         }
         
-        if availableMemory < 500 {
-            let warning = "⚠️ LOW SYSTEM MEMORY: \(availableMemory)MB available (system under pressure)\n"
-            logger.error("⚠️ LOW SYSTEM MEMORY: \(availableMemory, privacy: .public)MB available")
+        // Use realistic available memory threshold (1GB instead of 500MB)
+        if memoryStats.available < 1000 {
+            let warning = "⚠️ LOW SYSTEM MEMORY: \(formatMemory(memoryStats.available)) available (Free: \(formatMemory(memoryStats.free)), system under pressure)\n"
+            logger.error("⚠️ LOW SYSTEM MEMORY: \(self.formatMemory(memoryStats.available), privacy: .public) available")
             print(warning)
             writeCrashLog(warning)
         }
@@ -466,6 +559,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
+    private func formatMemory(_ mb: Int) -> String {
+        if mb >= 1000 {
+            let gb = Double(mb) / 1024.0
+            return String(format: "%.1fGB", gb)
+        } else {
+            return "\(mb)MB"
+        }
+    }
+    
     private func getMemoryUsage() -> Int {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
@@ -483,7 +585,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    private func getAvailableMemory() -> Int {
+    private func getMemoryStats() -> (free: Int, available: Int, inactive: Int, purgeable: Int) {
         var info = vm_statistics64()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64>.size / MemoryLayout<integer_t>.size)
         
@@ -494,10 +596,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         if kerr == KERN_SUCCESS {
-            let freeMemory = Int64(info.free_count) * Int64(vm_kernel_page_size) / (1024 * 1024)
-            return Int(freeMemory)
+            let pageSize = Int64(vm_kernel_page_size)
+            let freeMemory = Int64(info.free_count) * pageSize / (1024 * 1024)
+            let inactiveMemory = Int64(info.inactive_count) * pageSize / (1024 * 1024)
+            let purgeableMemory = Int64(info.purgeable_count) * pageSize / (1024 * 1024)
+            let availableMemory = freeMemory + inactiveMemory + purgeableMemory
+            
+            return (
+                free: Int(freeMemory),
+                available: Int(availableMemory),
+                inactive: Int(inactiveMemory),
+                purgeable: Int(purgeableMemory)
+            )
         } else {
-            return 0
+            return (free: 0, available: 0, inactive: 0, purgeable: 0)
+        }
+    }
+    
+    private func getHealthStatus(appMemory: Int, availableMemory: Int) -> (emoji: String, description: String) {
+        // Health levels based on app memory and system available memory
+        let isAppHealthy = appMemory <= 100
+        let isSystemHealthy = availableMemory >= 3000  // 3GB+
+        let isSystemModerate = availableMemory >= 1500 // 1.5GB+
+        let isSystemLow = availableMemory >= 1000      // 1GB+
+        
+        switch (isAppHealthy, isSystemHealthy, isSystemModerate, isSystemLow) {
+        case (true, true, _, _):
+            return ("💚", "Super healthy")
+        case (true, false, true, _):
+            return ("💛", "Healthy")
+        case (true, false, false, true):
+            return ("🧡", "Modestly healthy")
+        case (true, false, false, false):
+            return ("❤️", "Oh shit - low memory")
+        case (false, true, _, _):
+            return ("💜", "App heavy but system ok")
+        case (false, false, true, _):
+            return ("🧡", "App heavy, system tight")
+        case (false, false, false, true):
+            return ("❤️", "App heavy, memory pressure")
+        default:
+            return ("💔", "Oh shit - everything's stressed")
         }
     }
     
@@ -750,12 +889,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             
-            // Add a delay to ensure content is stable (actual copy vs selection)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            // Add a longer delay for multi-step operations (like Wispr Flow)
+            // This allows the app to complete its full clipboard workflow
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
                 guard let self = self else { return }
                 
-                // Verify the change count is still the same (content is stable)
-                if pasteboard.changeCount == currentChangeCount {
+                // Ensure app is still running before processing
+                guard NSApp.isRunning else {
+                    self.logger.info("⚠️ Skipping clipboard processing - app is terminating")
+                    return
+                }
+                
+                // Check if there have been subsequent changes (indicating multi-step operation)
+                let finalChangeCount = pasteboard.changeCount
+                if finalChangeCount != currentChangeCount {
+                    // There were more changes - process the final state instead
+                    self.processStableClipboardContent(pasteboard: pasteboard)
+                } else {
+                    // No further changes - process this stable content
                     self.processStableClipboardContent(pasteboard: pasteboard)
                 }
             }
@@ -763,38 +914,59 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func processStableClipboardContent(pasteboard: NSPasteboard) {
-        // Check for different content types
-        if let imageData = getImageFromPasteboard() {
-            // Image content
-            print("📋 New image copied to clipboard")
-            clipboardHistoryManager.addItem(content: "Image (\(formatBytes(imageData.count)))", contentType: "image", imageData: imageData)
-            showClipboardPreview(content: "Image", contentType: "image", imageData: imageData)
+        let currentTime = Date()
+        
+        // PRIORITY ORDER: Text > File > Image
+        // This handles apps like Wispr Flow that put both text and images on clipboard
+        
+        if let currentContent = pasteboard.string(forType: .string),
+           !currentContent.isEmpty && 
+           shouldShowPreviewForContent(currentContent) &&
+           currentContent != lastPasteboardContent {
+            
+            // Skip if this is our own internal copy operation
+            if isInternalCopy && currentContent == internalCopyContent {
+                print("📋 Skipping internal copy operation")
+                return
+            }
+            
+            // Text content is highest priority - this is usually the final result
+            lastPasteboardContent = currentContent
+            lastTextTime = currentTime
+            
+            print("📋 New text content detected: \(String(currentContent.prefix(50)))...")
+            
+            let contentType = determineContentType(content: currentContent)
+            
+            // Add to clipboard history
+            clipboardHistoryManager.addItem(content: currentContent, contentType: contentType, imageData: nil)
+            
+            // Show brief preview - DISABLED per user request
+            // showClipboardPreview(content: currentContent, contentType: contentType, imageData: nil)
+            
+            // Also send to Tauri app if running
+            sendClipboardContentToTauri(content: currentContent)
+            
         } else if let fileURL = getFileURLFromPasteboard() {
-            // File content
+            // File content (second priority)
             let fileName = fileURL.lastPathComponent
             print("📋 New file copied to clipboard: \(fileName)")
             clipboardHistoryManager.addItem(content: fileName, contentType: "file", imageData: nil)
-            showClipboardPreview(content: fileName, contentType: "file", imageData: nil)
-        } else if let currentContent = pasteboard.string(forType: .string) {
-            // Text content - only show if significantly different and not just a selection
-            if currentContent != lastPasteboardContent && 
-               !currentContent.isEmpty && 
-               shouldShowPreviewForContent(currentContent) {
-                lastPasteboardContent = currentContent
-                
-                print("📋 New pasteboard content detected: \(String(currentContent.prefix(50)))...")
-                
-                let contentType = determineContentType(content: currentContent)
-                
-                // Add to clipboard history
-                clipboardHistoryManager.addItem(content: currentContent, contentType: contentType, imageData: nil)
-                
-                // Show brief preview
-                showClipboardPreview(content: currentContent, contentType: contentType, imageData: nil)
-                
-                // Also send to Tauri app if running
-                sendClipboardContentToTauri(content: currentContent)
+            // showClipboardPreview(content: fileName, contentType: "file", imageData: nil)
+            
+        } else if let imageData = getImageFromPasteboard() {
+            // Image content (lowest priority - often intermediate in workflows)
+            lastImageTime = currentTime
+            
+            // Only process images if no recent text was processed
+            if let lastText = lastTextTime, currentTime.timeIntervalSince(lastText) < 3.0 {
+                print("📋 Skipping image - recent text content takes priority")
+                return
             }
+            
+            print("📋 New image copied to clipboard")
+            clipboardHistoryManager.addItem(content: "Image (\(formatBytes(imageData.count)))", contentType: "image", imageData: imageData)
+            // showClipboardPreview(content: "Image", contentType: "image", imageData: imageData)
         }
     }
     
@@ -938,22 +1110,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return nil
     }
     
+    // REMOVED - Quick Paste feature disabled
+    /*
     private func showClipboardPreview(content: String, contentType: String, imageData: Data?) {
-        // Create clipboard preview window if it doesn't exist
-        if clipboardPreviewWindow == nil {
-            clipboardPreviewWindow = ClipboardPreviewWindow()
-        }
-        
-        // Show the preview with callback to open history
-        clipboardPreviewWindow?.showPreview(
-            content: content,
-            contentType: contentType,
-            imageData: imageData,
-            onOpenHistory: { [weak self] in
-                self?.showClipboardHistory()
-            }
-        )
+        // This feature has been disabled
     }
+    */
     
     private func sendClipboardContentToTauri(content: String) {
         guard isTauriAppRunning(appName: "grab-actions") else {
@@ -995,6 +1157,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return "url"
         }
         
+        // Check if it looks like a log file
+        if isLogContent(content) {
+            return "log"
+        }
+        
+        // Check if it looks like a prompt for LLMs
+        if isPromptContent(content) {
+            return "prompt"
+        }
+        
         // Check if it looks like code (contains brackets, semicolons, and newlines)
         if content.contains("{") && content.contains("}") && content.contains("\n") {
             return "code"
@@ -1008,7 +1180,131 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return "text"
     }
     
+    private func isLogContent(_ content: String) -> Bool {
+        let lines = content.split(separator: "\n")
+        guard lines.count >= 2 else { return false }
+        
+        // Check for common log patterns
+        let logPatterns = [
+            // Timestamp patterns
+            "\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}", // ISO timestamps
+            "\\d{2}:\\d{2}:\\d{2}", // Time only
+            "\\[\\d{2}:\\d{2}:\\d{2}\\]", // Bracketed time
+            
+            // Log level patterns
+            "\\b(ERROR|WARN|INFO|DEBUG|TRACE|FATAL)\\b",
+            "\\b(error|warn|info|debug|trace|fatal)\\b",
+            "\\[\\w+\\]", // Bracketed levels
+            
+            // Stack trace patterns
+            "\\s+at\\s+\\w+", // Java-style stack traces
+            "\\s+in\\s+\\w+", // Swift/other stack traces
+            "Traceback", // Python tracebacks
+            
+            // System log patterns
+            "kernel:", "launchd:", "com\\.", // macOS system logs
+            "\\w+\\[\\d+\\]:", // Process[PID]:
+            
+            // Application log patterns
+            "💚|💛|🧡|❤️|💜|💔", // Our own health emojis
+            "🚀|📦|💾|🔄|⚠️|❌", // Our startup/error emojis
+        ]
+        
+        var logIndicators = 0
+        for line in lines.prefix(5) { // Check first 5 lines
+            let lineStr = String(line)
+            for pattern in logPatterns {
+                if lineStr.range(of: pattern, options: .regularExpression) != nil {
+                    logIndicators += 1
+                    break
+                }
+            }
+        }
+        
+        // Consider it a log if at least 40% of checked lines have log patterns
+        return Double(logIndicators) / Double(min(lines.count, 5)) >= 0.4
+    }
+    
+    private func isPromptContent(_ content: String) -> Bool {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wordCount = trimmed.split(separator: " ").count
+        
+        // Check for prompt characteristics
+        let promptIndicators = [
+            // Question patterns
+            trimmed.contains("?"),
+            trimmed.hasPrefix("How"),
+            trimmed.hasPrefix("What"),
+            trimmed.hasPrefix("Why"),
+            trimmed.hasPrefix("When"),
+            trimmed.hasPrefix("Where"),
+            trimmed.hasPrefix("Can you"),
+            trimmed.hasPrefix("Could you"),
+            trimmed.hasPrefix("Please"),
+            
+            // AI/LLM specific patterns
+            trimmed.contains("explain"),
+            trimmed.contains("implement"),
+            trimmed.contains("help me"),
+            trimmed.contains("show me"),
+            trimmed.contains("create"),
+            trimmed.contains("build"),
+            trimmed.contains("fix"),
+            trimmed.contains("debug"),
+            
+            // Instruction patterns
+            trimmed.lowercased().contains("step by step"),
+            trimmed.lowercased().contains("detailed"),
+            trimmed.lowercased().contains("example"),
+            
+            // Length indicators (prompts are usually longer than simple text)
+            wordCount >= 10 && wordCount <= 200, // Sweet spot for prompts
+            trimmed.count >= 50 && trimmed.count <= 1000, // Character length
+        ]
+        
+        let indicators = promptIndicators.filter { $0 }.count
+        
+        // Consider it a prompt if it has multiple prompt characteristics
+        return indicators >= 3
+    }
+    
+    // MARK: - Safe Clipboard Operations
+    
+    func copyToClipboardSafely(_ content: String) {
+        // Flag that this is an internal copy to prevent feedback loop
+        isInternalCopy = true
+        internalCopyContent = content
+        
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(content, forType: .string)
+        
+        // Reset the flag after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.isInternalCopy = false
+            self?.internalCopyContent = ""
+        }
+        
+        logger.debug("📋 Internal copy: \(content.prefix(30), privacy: .public)...")
+    }
+    
     deinit {
         pasteboardTimer?.invalidate()
     }
 }
+
+// MARK: - NSWindowDelegate
+// TEMPORARILY DISABLED to debug crash
+/*
+extension AppDelegate: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        
+        // Clear reference to nano pastebin window when it closes
+        if window === nanoPastebinWindow {
+            logger.info("🎯 Nano pastebin window closing, clearing reference")
+            nanoPastebinWindow = nil
+        }
+    }
+}
+*/
