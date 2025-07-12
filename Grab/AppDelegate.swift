@@ -29,6 +29,8 @@ func writeCrashLog(_ message: String) {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
+    static weak var shared: AppDelegate?
+    
     var statusItem: NSStatusItem?
     var captureManager: CaptureManager!
     var hotkeyManager: HotkeyManager!
@@ -37,6 +39,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
     var clipboardPreviewWindow: ClipboardPreviewWindow?
     var clipboardHistoryWindow: ClipboardHistoryWindow?
     var nanoPastebinWindow: NanoPastebinWindow?
+    var commandCenterWindow: CommandCenterWindow?
+    var mainWindow: MainWindow?
     
     // Modern macOS logging
     let logger = Logger(subsystem: "com.grab.macos", category: "main")
@@ -66,6 +70,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
     }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Set singleton reference
+        AppDelegate.shared = self
+        
         // Set up crash detection and logging
         setupCrashLogging()
         
@@ -105,6 +112,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         setupHotkeys()
         setupCaptureWindow()
         setupPasteboardMonitoring()
+        setupModalActionHandler()
         
         print("📱 Menu bar icon and hotkeys configured")
         
@@ -146,6 +154,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         let captureSelectionItem = NSMenuItem(title: "Capture Selection", action: #selector(captureSelection), keyEquivalent: "a")
         captureSelectionItem.target = self
         menu.addItem(captureSelectionItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        let showMainWindowItem = NSMenuItem(title: "Show Grab", action: #selector(showMainWindow), keyEquivalent: "g")
+        showMainWindowItem.target = self
+        menu.addItem(showMainWindowItem)
         
         menu.addItem(NSMenuItem.separator())
         
@@ -244,6 +258,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         launchTauriViewer()
     }
     
+    @objc func showMainWindow() {
+        logger.info("🪟 Opening main window")
+        
+        if mainWindow == nil {
+            mainWindow = MainWindow(
+                clipboardHistory: clipboardHistoryManager,
+                captureManager: captureManager
+            )
+        }
+        
+        mainWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
     @objc func showClipboardHistory() {
         logger.info("🔍 Opening clipboard history window")
         writeCrashLog("🔍 Opening clipboard history at \(Date())\n")
@@ -264,6 +292,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
     // MARK: - Nano Pastebin
     
     private var nanoPastebinInvocationCount = 0
+    
+    // MARK: - Command Center
+    
+    func showCommandCenter() {
+        logger.info("🎯 Showing Command Center")
+        
+        if let existingWindow = self.commandCenterWindow, existingWindow.isVisible {
+            existingWindow.hideWithAnimation()
+            return
+        }
+        
+        let window = CommandCenterWindow()
+        self.commandCenterWindow = window
+        window.showAtCenter()
+    }
     
     func showNanoPastebin() {
         nanoPastebinInvocationCount += 1
@@ -288,18 +331,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
     private func showNanoPastebinInternal() {
         logger.info("🎯 showNanoPastebinInternal called - invocation #\(self.nanoPastebinInvocationCount)")
         
+        // Check if window exists and is visible - if so, toggle it off
+        if let existingWindow = self.nanoPastebinWindow, existingWindow.isVisible {
+            logger.info("🎯 Window is visible - toggling OFF")
+            existingWindow.hideWithAnimation()
+            return
+        }
+        
         // Log total items in clipboard history
         let totalHistoryItems = clipboardHistoryManager.items.count
         logger.info("📚 Total clipboard history: \(totalHistoryItems, privacy: .public) items")
         
-        let itemsToShow = getSmartClipboardItems()
-        logger.info("📤 Sending \(itemsToShow.count, privacy: .public) items to Nano Pastebin")
+        // Get the pre-categorized cache directly from clipboard history manager
+        let categorizedCache = clipboardHistoryManager.categorizedCache
+        let totalCategorized = categorizedCache.logs.count + categorizedCache.prompts.count + 
+                             categorizedCache.images.count + categorizedCache.other.count
+        logger.info("📤 Using pre-categorized cache with \(totalCategorized, privacy: .public) items")
+        logger.info("   📂 Logs: \(categorizedCache.logs.count, privacy: .public)")
+        logger.info("   💬 Prompts: \(categorizedCache.prompts.count, privacy: .public)")
+        logger.info("   🖼️ Images: \(categorizedCache.images.count, privacy: .public)")
+        logger.info("   📄 Other: \(categorizedCache.other.count, privacy: .public)")
         
         // Reuse the same window instance if possible
         if let existingWindow = self.nanoPastebinWindow {
             logger.info("🎯 Reusing existing window")
-            // Just show it again with new items
-            existingWindow.showNearCursor(with: itemsToShow)
+            // Just show it again with pre-categorized cache
+            existingWindow.showNearCursor(with: categorizedCache)
         } else {
             logger.info("🎯 Creating new NanoPastebinWindow")
             // Create the window only once
@@ -307,7 +364,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
             self.nanoPastebinWindow = window
             
             logger.info("🎯 Showing NanoPastebinWindow")
-            window.showNearCursor(with: itemsToShow)
+            window.showNearCursor(with: categorizedCache)
         }
         
         logger.info("🎯 showNanoPastebinInternal completed")
@@ -329,6 +386,83 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         }
     }
 
+    // MARK: - Modal Action Handler
+    
+    private func setupModalActionHandler() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGrabModalAction(_:)),
+            name: Notification.Name("GrabModalAction"),
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCommandCenterAction(_:)),
+            name: Notification.Name("GrabCommandCenterAction"),
+            object: nil
+        )
+    }
+    
+    @objc private func handleGrabModalAction(_ notification: Notification) {
+        guard let action = notification.userInfo?["action"] as? String else { return }
+        
+        logger.info("🎯 Handling modal action: \(action, privacy: .public)")
+        
+        switch action {
+        case "captureArea":
+            captureSelection()
+        case "captureScreen":
+            captureScreen()
+        case "captureWindow":
+            captureActiveWindow()
+        case "captureClipboard":
+            saveClipboard()
+        case "toggleHelp":
+            // Re-show hints even for experienced users
+            if nanoPastebinWindow != nil {
+                NotificationCenter.default.post(
+                    name: Notification.Name("NanoPastebinToggleHelp"),
+                    object: nil
+                )
+            }
+        default:
+            logger.warning("🚨 Unknown modal action: \(action, privacy: .public)")
+        }
+    }
+    
+    @objc private func handleCommandCenterAction(_ notification: Notification) {
+        guard let action = notification.userInfo?["action"] as? String else { return }
+        
+        logger.info("🎯 Handling command center action: \(action, privacy: .public)")
+        
+        switch action {
+        case "captureArea":
+            captureSelection()
+        case "captureScreen":
+            captureScreen()
+        case "captureWindow":
+            captureActiveWindow()
+        case "captureClipboard":
+            saveClipboard()
+        case "showPastebin":
+            showNanoPastebin()
+        case "openGallery":
+            openGrabViewer()
+        case "showHistory":
+            showClipboardHistory()
+        case "showHelp":
+            // TODO: Implement help
+            logger.info("Help not yet implemented")
+        default:
+            logger.warning("Unknown command center action: \(action, privacy: .public)")
+        }
+    }
+    
+    // DEPRECATED: No longer needed - using pre-categorized cache for performance
+    // This function was causing performance issues as categorization was happening on every Hyper+G press
+    // Now we maintain a live categorized cache in ClipboardHistoryManager that updates incrementally
+    /*
     private func getSmartClipboardItems() -> [ClipboardItem] {
         let allItems = clipboardHistoryManager.items
         logger.info("📋 Total clipboard items: \(allItems.count, privacy: .public)")
@@ -340,6 +474,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         // Return the recent items - NanoPastebinView will handle categorization and limiting
         return recentItems
     }
+    */
     
     @objc func showNanoPastebinFromMenu() {
         logger.info("🎯 showNanoPastebinFromMenu called - testing menu trigger")

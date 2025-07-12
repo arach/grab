@@ -11,7 +11,7 @@ edition = "2021"
 tauri-build = { version = "1.0", features = [] }
 
 [dependencies]
-tauri = { version = "1.0", features = [ "window-start-dragging", "window-print", "window-unminimize", "window-set-position", "window-hide", "window-set-max-size", "window-request-user-attention", "window-set-decorations", "window-set-fullscreen", "window-set-title", "window-center", "window-show", "window-set-size", "window-set-min-size", "window-close", "window-set-icon", "window-maximize", "window-unmaximize", "window-minimize", "window-set-focus", "window-set-always-on-top", "window-set-skip-taskbar", "window-set-resizable", "fs-write-file", "dialog-open", "fs-create-dir", "shell-open", "path-all", "fs-read-dir", "fs-read-file"] }
+tauri = { version = "1.0", features = [ "window-start-dragging", "window-hide", "window-set-resizable", "window-set-size", "window-set-decorations", "window-minimize", "window-set-always-on-top", "window-close", "window-unminimize", "window-unmaximize", "window-set-fullscreen", "window-set-focus", "window-set-position", "window-set-title", "window-set-min-size", "window-center", "window-request-user-attention", "window-set-max-size", "window-maximize", "window-show", "window-set-icon", "window-print", "window-set-skip-taskbar", "fs-write-file", "dialog-open", "fs-create-dir", "shell-open", "path-all", "fs-read-dir", "fs-read-file"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 dirs = "5.0"

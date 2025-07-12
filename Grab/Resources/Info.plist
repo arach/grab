@@ -28,7 +28,7 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>LSUIElement</key>
-    <true/>
+    <false/>
     <key>NSSystemAdministrationUsageDescription</key>
     <string>Grab needs system administration privileges to capture screenshots and monitor clipboard changes.</string>
     <key>NSAppleEventsUsageDescription</key>

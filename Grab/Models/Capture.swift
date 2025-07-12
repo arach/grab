@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 
-struct Capture: Codable {
+struct Capture: Codable, Identifiable {
     let id: UUID
     let timestamp: Date
     let type: CaptureType

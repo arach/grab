@@ -19,6 +19,9 @@ class CaptureManager: ObservableObject {
     private var capturesHistoryFile: URL
     private var captureHistory: [Capture] = []
     
+    // Published property for UI updates
+    @Published var recentCaptures: [Capture] = []
+    
     // Check if we're running in a proper app bundle
     private var isRunningInAppBundle: Bool {
         return Bundle.main.bundleIdentifier != nil
@@ -149,6 +152,11 @@ class CaptureManager: ObservableObject {
         do {
             let data = try Data(contentsOf: capturesHistoryFile)
             captureHistory = try JSONDecoder().decode([Capture].self, from: data)
+            
+            // Update recent captures for UI
+            DispatchQueue.main.async {
+                self.recentCaptures = Array(self.captureHistory.suffix(20))
+            }
         } catch {
             print("Failed to load capture history: \(error)")
         }
@@ -172,6 +180,12 @@ class CaptureManager: ObservableObject {
     
     private func saveCapture(_ capture: Capture) {
         captureHistory.append(capture)
+        
+        // Update recent captures for UI
+        DispatchQueue.main.async {
+            self.recentCaptures = Array(self.captureHistory.suffix(20))
+        }
+        
         saveCaptureHistory()
     }
     
@@ -195,28 +209,80 @@ class CaptureManager: ObservableObject {
     
     @MainActor
     private func performScreenCapture(type: CaptureType) async {
+        print("🎯 Starting capture of type: \(type)")
+        
         let screenshotTask = Process()
         screenshotTask.launchPath = "/usr/sbin/screencapture"
         
         let filename = generateFilename(for: type, extension: "png")
         let filePath = capturesDirectory.appendingPathComponent(filename)
         
-        var arguments = ["-x", filePath.path]
+        var arguments: [String] = []
         
         switch type {
         case .screen:
-            arguments.append("-m")
+            // Full screen capture: -m (main monitor only), -x (no sound)
+            arguments = ["-m", "-x", filePath.path]
         case .window:
-            arguments.append("-w")
+            // Window capture: -w (window mode), -x (no sound)
+            arguments = ["-w", "-x", filePath.path]
         case .selection:
-            arguments.append("-s")
+            // Selection capture: -i (interactive), -s (selection mode)
+            // Don't use -x with interactive mode as it can cause issues
+            arguments = ["-i", "-s", filePath.path]
         case .clipboard:
             break
         }
         
+        print("🎯 Launching screencapture with args: \(arguments)")
+        
         screenshotTask.arguments = arguments
-        screenshotTask.launch()
-        screenshotTask.waitUntilExit()
+        
+        // For interactive modes, we need to ensure the app doesn't block
+        if type == .selection || type == .window {
+            screenshotTask.launch()
+            
+            // Wait for completion in background and handle the result
+            Task {
+                screenshotTask.waitUntilExit()
+                
+                await MainActor.run {
+                    print("🎯 Screencapture completed with status: \(screenshotTask.terminationStatus)")
+                    
+                    // Process the capture result
+                    if screenshotTask.terminationStatus == 0 {
+                        do {
+                            let fileAttributes = try FileManager.default.attributesOfItem(atPath: filePath.path)
+                            let fileSize = fileAttributes[.size] as? Int64 ?? 0
+                            
+                            let image = NSImage(contentsOf: filePath)
+                            let dimensions = image?.size ?? CGSize.zero
+                            
+                            let metadata = CaptureMetadata(dimensions: dimensions)
+                            let capture = Capture(
+                                type: type,
+                                filename: filename,
+                                fileExtension: "png",
+                                fileSize: fileSize,
+                                metadata: metadata
+                            )
+                            
+                            self.saveCapture(capture)
+                            // Show preview for interactive captures
+                            self.showPreviewWindow(for: capture)
+                        } catch {
+                            print("Failed to get file attributes: \(error)")
+                        }
+                    } else {
+                        print("Screenshot was cancelled (status: \(screenshotTask.terminationStatus))")
+                    }
+                }
+            }
+            return  // Exit early for async processing
+        } else {
+            screenshotTask.launch()
+            screenshotTask.waitUntilExit()
+        }
         
         if screenshotTask.terminationStatus == 0 {
             do {
@@ -236,7 +302,8 @@ class CaptureManager: ObservableObject {
                 )
                 
                 saveCapture(capture)
-                showNotification(for: capture)
+                // Show preview instead of notification
+                showPreviewWindow(for: capture)
             } catch {
                 print("Failed to get file attributes: \(error)")
             }
@@ -384,9 +451,14 @@ class CaptureManager: ObservableObject {
     }
     
     private func showPreviewWindow(for capture: Capture) {
+        print("🎯 showPreviewWindow called for capture: \(capture.filename)")
+        
         DispatchQueue.main.async {
-            if let appDelegate = NSApp.delegate as? AppDelegate {
+            if let appDelegate = AppDelegate.shared {
+                print("🎯 Calling AppDelegate.showCapturePreview via singleton")
                 appDelegate.showCapturePreview(for: capture)
+            } else {
+                print("❌ AppDelegate.shared is nil")
             }
         }
     }

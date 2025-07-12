@@ -37,8 +37,10 @@ class NanoPastebinWindow: NSWindow {
         isMovableByWindowBackground = true
     }
     
-    func showNearCursor(with items: [ClipboardItem]) {
-        print("🎯 showNearCursor called with \(items.count) items")
+    func showNearCursor(with categorizedCache: CategorizedClipboard) {
+        let totalItems = categorizedCache.logs.count + categorizedCache.prompts.count + 
+                        categorizedCache.images.count + categorizedCache.other.count
+        print("🎯 showNearCursor called with \(totalItems) categorized items")
         
         // Get current mouse position
         let mouseLocation = NSEvent.mouseLocation
@@ -51,7 +53,7 @@ class NanoPastebinWindow: NSWindow {
         // Create the nano pastebin view
         print("🎯 Creating NanoPastebinView")
         let nanoPastebinView = NanoPastebinView(
-            items: items,
+            categorizedCache: categorizedCache,
             onDismiss: { [weak self] in
                 print("🎯 onDismiss callback triggered")
                 self?.hideWithAnimation()
@@ -80,6 +82,10 @@ class NanoPastebinWindow: NSWindow {
             // Window is already visible, just make it key
             makeKeyAndOrderFront(nil)
         }
+        
+        // Ensure window can receive key events
+        makeKey()
+        makeFirstResponder(self)
         
         // Set up auto-dismiss timer
         dismissTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
@@ -147,18 +153,41 @@ class NanoPastebinWindow: NSWindow {
     }
     
     private func showWithAnimation() {
-        // For regular windows, just show normally with a fade
+        // Start with window transparent and slightly below final position
         alphaValue = 0.0
+        
+        // Store the target frame
+        let targetFrame = self.frame
+        
+        // Start position - slightly below
+        let startFrame = NSRect(
+            x: targetFrame.origin.x,
+            y: targetFrame.origin.y - 20,
+            width: targetFrame.width,
+            height: targetFrame.height
+        )
+        
+        setFrame(startFrame, display: false)
         makeKeyAndOrderFront(nil)
         
+        // Force window to be key and active
+        NSApp.activate(ignoringOtherApps: true)
+        makeKey()
+        becomeFirstResponder()
+        
+        // Animate slide up and fade in
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
+            context.duration = 0.3
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            context.allowsImplicitAnimation = true
+            
+            // Animate position and opacity
+            animator().setFrame(targetFrame, display: true)
             animator().alphaValue = 1.0
         }
     }
     
-    private func hideWithAnimation() {
+    func hideWithAnimation() {
         // Cancel timer first
         dismissTimer?.invalidate()
         dismissTimer = nil
@@ -166,18 +195,32 @@ class NanoPastebinWindow: NSWindow {
         // Remove notification observer
         NotificationCenter.default.removeObserver(self)
         
-        // DON'T clear the AppDelegate reference - we want to reuse this window
+        // Store current frame for animation
+        let currentFrame = self.frame
         
-        // Animate out then hide (not close)
+        // Target frame - slide down
+        let targetFrame = NSRect(
+            x: currentFrame.origin.x,
+            y: currentFrame.origin.y - 20,
+            width: currentFrame.width,
+            height: currentFrame.height
+        )
+        
+        // Animate slide down and fade out
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.2
+            context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            context.allowsImplicitAnimation = true
+            
+            // Animate position and opacity
+            self.animator().setFrame(targetFrame, display: true)
             self.animator().alphaValue = 0.0
         }, completionHandler: {
             // Just hide the window, don't close it
             self.orderOut(nil)
-            // Reset alpha for next show
+            // Reset for next show
             self.alphaValue = 1.0
+            self.setFrame(currentFrame, display: false)
         })
     }
     
@@ -237,6 +280,41 @@ class NanoPastebinWindow: NSWindow {
                 object: nil,
                 userInfo: ["number": number]
             )
+        }
+        // Check for category shortcuts
+        else if let char = event.characters?.lowercased() {
+            switch char {
+            case "l":
+                print("🎯 Category shortcut: Logs")
+                NotificationCenter.default.post(
+                    name: Notification.Name("NanoPastebinCategoryJump"),
+                    object: nil,
+                    userInfo: ["category": "logs"]
+                )
+            case "i":
+                print("🎯 Category shortcut: Images")
+                NotificationCenter.default.post(
+                    name: Notification.Name("NanoPastebinCategoryJump"),
+                    object: nil,
+                    userInfo: ["category": "images"]
+                )
+            case "p":
+                print("🎯 Category shortcut: Prompts")
+                NotificationCenter.default.post(
+                    name: Notification.Name("NanoPastebinCategoryJump"),
+                    object: nil,
+                    userInfo: ["category": "prompts"]
+                )
+            case "o":
+                print("🎯 Category shortcut: Other")
+                NotificationCenter.default.post(
+                    name: Notification.Name("NanoPastebinCategoryJump"),
+                    object: nil,
+                    userInfo: ["category": "other"]
+                )
+            default:
+                super.keyDown(with: event)
+            }
         } else {
             super.keyDown(with: event)
         }

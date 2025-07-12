@@ -3,7 +3,7 @@ import Carbon
 import AppKit
 
 protocol HotkeyManagerDelegate: AnyObject {
-    func showNanoPastebin()
+    func showCommandCenter()
 }
 
 class HotkeyManager {
@@ -79,7 +79,7 @@ class HotkeyManager {
         case .saveClipboard:
             captureManager.saveClipboard()
         case .showNanoPastebin:
-            delegate?.showNanoPastebin()
+            delegate?.showCommandCenter()
         }
     }
     

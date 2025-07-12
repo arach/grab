@@ -74,6 +74,8 @@ class CapturePreviewWindow: NSWindow {
     }
     
     func showPreview(for capture: Capture) {
+        print("🎯 CapturePreviewWindow.showPreview called for: \(capture.filename)")
+        
         // Create and set the preview view
         let previewView = CapturePreviewView(capture: capture) { [weak self] action in
             self?.handleAction(action, for: capture)
@@ -84,6 +86,7 @@ class CapturePreviewWindow: NSWindow {
         // Cancel any existing timer
         dismissTimer?.invalidate()
         
+        print("🎯 Showing preview window with animation")
         // Show window with animation
         showWithAnimation()
         

@@ -33,21 +33,54 @@ enum NanoPasteCategory {
 }
 
 struct NanoPastebinView: View {
-    let items: [ClipboardItem]
+    let categorizedCache: CategorizedClipboard
     let onDismiss: () -> Void
     let onCopy: (String) -> Void
     
     @State private var isCountdownActive = true
     @State private var numberKeyHandler: Any?
+    @State private var categoryKeyHandler: Any?
+    @State private var hoveredItem: String? = nil
+    @State private var filterText: String = ""
+    @State private var focusedCategory: String? = nil
+    
+    init(categorizedCache: CategorizedClipboard, onDismiss: @escaping () -> Void, onCopy: @escaping (String) -> Void) {
+        self.categorizedCache = categorizedCache
+        self.onDismiss = onDismiss
+        self.onCopy = onCopy
+        
+        // Log what we received from the pre-computed cache
+        print("🎯 NanoPastebinView initialized with pre-computed cache:")
+        print("   📂 Logs: \(categorizedCache.logs.count)")
+        print("   💬 Prompts: \(categorizedCache.prompts.count)")
+        print("   🖼️ Images: \(categorizedCache.images.count)")
+        print("   📄 Other: \(categorizedCache.other.count)")
+    }
     
     // Track total items vs displayed
     private var totalItemsCount: Int {
-        items.count
+        // Since we're using pre-categorized cache, we only know about displayed items
+        displayedItemsCount
     }
     
     private var displayedItemsCount: Int {
-        categorizedItems.logs.count + categorizedItems.prompts.count + 
-        categorizedItems.images.count + categorizedItems.other.count
+        categorizedCache.logs.count + categorizedCache.prompts.count + 
+        categorizedCache.images.count + categorizedCache.other.count
+    }
+    
+    // Filter items based on search text
+    private func isItemFiltered(_ item: ClipboardItem) -> Bool {
+        if filterText.isEmpty { return true }
+        return item.content.localizedCaseInsensitiveContains(filterText)
+    }
+    
+    private func getFilteredItemsCount() -> Int {
+        var count = 0
+        count += categorizedCache.logs.filter(isItemFiltered).count
+        count += categorizedCache.prompts.filter(isItemFiltered).count
+        count += categorizedCache.images.filter(isItemFiltered).count
+        count += categorizedCache.other.filter(isItemFiltered).count
+        return count
     }
     
     // Get all items in order with their number assignments
@@ -56,19 +89,19 @@ struct NanoPastebinView: View {
         var number = 1
         
         // Add items in column order: logs, prompts, images, other
-        for item in categorizedItems.logs {
+        for item in categorizedCache.logs {
             result.append((number, item))
             number += 1
         }
-        for item in categorizedItems.prompts {
+        for item in categorizedCache.prompts {
             result.append((number, item))
             number += 1
         }
-        for item in categorizedItems.images {
+        for item in categorizedCache.images {
             result.append((number, item))
             number += 1
         }
-        for item in categorizedItems.other {
+        for item in categorizedCache.other {
             result.append((number, item))
             number += 1
         }
@@ -76,57 +109,26 @@ struct NanoPastebinView: View {
         return result
     }
     
-    private var categorizedItems: (logs: [ClipboardItem], prompts: [ClipboardItem], images: [ClipboardItem], other: [ClipboardItem]) {
-        var logs: [ClipboardItem] = []
-        var prompts: [ClipboardItem] = []
-        var images: [ClipboardItem] = []
-        var other: [ClipboardItem] = []
-        
-        print("🎯 Categorizing \(items.count) items (max 10 per category)")
-        
-        // Go through items and categorize them, limiting to 10 per category
-        for item in items {
-            if item.isImage && images.count < 10 {
-                images.append(item)
-                print("  📸 Image: \(item.content.prefix(30))...")
-            } else if item.isLog && logs.count < 10 {
-                logs.append(item)
-                print("  📝 Log: \(item.content.prefix(30))...")
-            } else if item.isPrompt && prompts.count < 10 {
-                prompts.append(item)
-                print("  💬 Prompt: \(item.content.prefix(30))...")
-            } else if !item.isImage && !item.isLog && !item.isPrompt && other.count < 10 {
-                // Only add to "other" if it doesn't fit the other categories
-                other.append(item)
-                print("  📄 Other: \(item.content.prefix(30))...")
-            }
-            
-            // Early exit if all categories are full
-            if logs.count >= 10 && prompts.count >= 10 && images.count >= 10 && other.count >= 10 {
-                print("✅ All categories full, stopping categorization")
-                break
-            }
-        }
-        
-        print("📊 Final count: \(logs.count) logs, \(prompts.count) prompts, \(images.count) images, \(other.count) other")
-        
-        return (
-            logs: logs,
-            prompts: prompts,
-            images: images,
-            other: other
-        )
-    }
+    // No longer needed - using pre-computed cache!
     
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 0) {
                 // Logs
                 VStack(alignment: .leading, spacing: 0) {
-                    SectionHeader(icon: "chevron.right", title: "logs", color: .green, count: categorizedItems.logs.count)
+                    SectionHeader(icon: "chevron.right", title: "logs", color: .green, count: categorizedCache.logs.count)
+                        .overlay(
+                            // Focus indicator
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.green, lineWidth: 2)
+                                .padding(2)
+                                .opacity(focusedCategory == "logs" ? 1 : 0)
+                                .animation(.easeInOut(duration: 0.2), value: focusedCategory)
+                        )
                     ScrollView {
                         VStack(spacing: 0) {
-                            ForEach(Array(categorizedItems.logs.enumerated()), id: \ .element.id) { idx, item in
+                            ForEach(Array(categorizedCache.logs.enumerated()).filter { isItemFiltered($0.element) }, id: \ .element.id) { idx, item in
                                 PastebinCard(
                                     icon: "chevron.right",
                                     index: idx + 1,
@@ -149,10 +151,17 @@ struct NanoPastebinView: View {
                 Divider().background(Color.white.opacity(0.08))
                 // Images
                 VStack(alignment: .leading, spacing: 0) {
-                    SectionHeader(icon: "photo", title: "images", color: .blue, count: categorizedItems.images.count)
+                    SectionHeader(icon: "photo", title: "images", color: .blue, count: categorizedCache.images.count)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.blue, lineWidth: 2)
+                                .padding(2)
+                                .opacity(focusedCategory == "images" ? 1 : 0)
+                                .animation(.easeInOut(duration: 0.2), value: focusedCategory)
+                        )
                     ScrollView {
                         VStack(spacing: 0) {
-                            ForEach(Array(categorizedItems.images.enumerated()), id: \ .element.id) { idx, item in
+                            ForEach(Array(categorizedCache.images.enumerated()).filter { isItemFiltered($0.element) }, id: \ .element.id) { idx, item in
                                 if let imageData = item.imageData,
                                    let nsImage = NSImage(data: imageData) {
                                     ImagePastebinCard(
@@ -194,10 +203,17 @@ struct NanoPastebinView: View {
                 Divider().background(Color.white.opacity(0.08))
                 // Prompts
                 VStack(alignment: .leading, spacing: 0) {
-                    SectionHeader(icon: "bubble.left", title: "prompts", color: .purple, count: categorizedItems.prompts.count)
+                    SectionHeader(icon: "bubble.left", title: "prompts", color: .purple, count: categorizedCache.prompts.count)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.purple, lineWidth: 2)
+                                .padding(2)
+                                .opacity(focusedCategory == "prompts" ? 1 : 0)
+                                .animation(.easeInOut(duration: 0.2), value: focusedCategory)
+                        )
                     ScrollView {
                         VStack(spacing: 0) {
-                            ForEach(Array(categorizedItems.prompts.enumerated()), id: \ .element.id) { idx, item in
+                            ForEach(Array(categorizedCache.prompts.enumerated()).filter { isItemFiltered($0.element) }, id: \ .element.id) { idx, item in
                                 PastebinCard(
                                     icon: "bubble.left",
                                     index: idx + 1,
@@ -220,10 +236,17 @@ struct NanoPastebinView: View {
                 Divider().background(Color.white.opacity(0.08))
                 // Other
                 VStack(alignment: .leading, spacing: 0) {
-                    SectionHeader(icon: "doc.plaintext", title: "other", color: .cyan, count: categorizedItems.other.count)
+                    SectionHeader(icon: "doc.plaintext", title: "other", color: .cyan, count: categorizedCache.other.count)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.cyan, lineWidth: 2)
+                                .padding(2)
+                                .opacity(focusedCategory == "other" ? 1 : 0)
+                                .animation(.easeInOut(duration: 0.2), value: focusedCategory)
+                        )
                     ScrollView {
                         VStack(spacing: 0) {
-                            ForEach(Array(categorizedItems.other.enumerated()), id: \ .element.id) { idx, item in
+                            ForEach(Array(categorizedCache.other.enumerated()).filter { isItemFiltered($0.element) }, id: \ .element.id) { idx, item in
                                 PastebinCard(
                                     icon: "doc.plaintext",
                                     index: idx + 1,
@@ -249,32 +272,64 @@ struct NanoPastebinView: View {
             .padding(.bottom, 0)
             .frame(minHeight: 400, idealHeight: 500, maxHeight: .infinity)
             Divider().background(Color.white.opacity(0.10))
-            HStack {
-                Text("ESC to close")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(.gray)
+            
+            // Terminal-style filter bar
+            HStack(spacing: 4) {
+                Text("/")
+                    .font(.system(size: 13, weight: .regular, design: .monospaced))
+                    .foregroundColor(.gray.opacity(0.6))
                     .padding(.leading, 16)
-                Spacer()
                 
-                // Show count indicator if not all items are displayed
-                if totalItemsCount > displayedItemsCount {
-                    Text("Showing \(displayedItemsCount) of \(totalItemsCount) items")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(.orange.opacity(0.8))
-                    Spacer()
+                TextField("", text: $filterText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white)
+                    .padding(.vertical, 8)
+                
+                if !filterText.isEmpty {
+                    Button(action: { filterText = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(.gray.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
                 }
                 
-                Text("⌘+C to copy · ⌘+V to paste")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundColor(.gray)
+                Spacer()
+                
+                // Show filtered count if filtering
+                if !filterText.isEmpty {
+                    let filteredCount = getFilteredItemsCount()
+                    Text("\(filteredCount) matches")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(.orange.opacity(0.8))
+                }
+                
+                Text("esc to close • l/i/p/o to jump")
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundColor(.gray.opacity(0.5))
                     .padding(.trailing, 16)
             }
-            .frame(height: 32)
-            .background(Color(red: 0.09, green: 0.10, blue: 0.13))
-        }
-        .background(Color(red: 0.10, green: 0.12, blue: 0.16))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .shadow(color: .black.opacity(0.25), radius: 24, x: 0, y: 12)
+            .frame(height: 36)
+            .background(Color(red: 0.08, green: 0.09, blue: 0.11))
+            .overlay(
+                // Subtle placeholder when empty - could show hint after 5 uses
+                HStack {
+                    if filterText.isEmpty {
+                        Text("")
+                            .font(.system(size: 13, weight: .regular, design: .monospaced))
+                            .foregroundColor(.gray.opacity(0.4))
+                            .padding(.leading, 36)
+                    }
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+            )
+            } // End of main window VStack
+            .background(Color(red: 0.10, green: 0.12, blue: 0.16))
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .shadow(color: .black.opacity(0.25), radius: 24, x: 0, y: 12)
+        } // End of outer VStack with hints
         .onTapGesture {
             isCountdownActive = false
             NotificationCenter.default.post(name: Notification.Name("CancelNanoPastebinAutoDismiss"), object: nil)
@@ -309,10 +364,33 @@ struct NanoPastebinView: View {
                     }
                 }
             }
+            
+            // Set up category jump handler
+            categoryKeyHandler = NotificationCenter.default.addObserver(
+                forName: Notification.Name("NanoPastebinCategoryJump"),
+                object: nil,
+                queue: .main
+            ) { notification in
+                if let category = notification.userInfo?["category"] as? String {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        focusedCategory = category
+                    }
+                    
+                    // Reset focus after a moment
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            focusedCategory = nil
+                        }
+                    }
+                }
+            }
         }
         .onDisappear {
-            // Clean up notification observer
+            // Clean up notification observers
             if let handler = numberKeyHandler {
+                NotificationCenter.default.removeObserver(handler)
+            }
+            if let handler = categoryKeyHandler {
                 NotificationCenter.default.removeObserver(handler)
             }
         }
@@ -591,14 +669,27 @@ struct SectionHeader: View {
     let title: String
     let color: Color
     let count: Int
+    
+    var shortcutKey: String {
+        switch title.lowercased() {
+        case "logs": return "L"
+        case "images": return "I"
+        case "prompts": return "P"
+        case "other": return "O"
+        default: return ""
+        }
+    }
+    
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(color)
+            
             Text(title.lowercased())
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundColor(color)
+            
             Text("(") + Text("\(count)").foregroundColor(.gray) + Text(")")
                 .font(.system(size: 13, weight: .regular, design: .rounded))
                 .foregroundColor(.gray)
@@ -623,10 +714,10 @@ struct PastebinCard: View {
             HStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(color.opacity(0.8))
+                    .foregroundColor(color.opacity(isHovered ? 1.0 : 0.8))
                 Text("#\(index)")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.gray)
+                    .foregroundColor(isHovered ? color.opacity(0.7) : .gray)
                 Spacer()
                 Text(timeAgo)
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
@@ -794,20 +885,33 @@ extension View {
 }
 
 struct NanoPastebinView_Previews: PreviewProvider {
-    static var previews: some View {
-        // Create mock clipboard items
-        let mockItems = [
+    static var mockCache: CategorizedClipboard = {
+        // Create mock categorized clipboard cache
+        var cache = CategorizedClipboard()
+        
+        // Add mock items to categories
+        cache.logs = [
             ClipboardItem(content: "[INFO] Application started successfully", contentType: "text", timestamp: Date()),
             ClipboardItem(content: "[ERROR] Failed to connect to database", contentType: "text", timestamp: Date()),
+            ClipboardItem(content: "DEBUG: Connection established", contentType: "text", timestamp: Date())
+        ]
+        
+        cache.prompts = [
             ClipboardItem(content: "Write a function to parse JSON", contentType: "text", timestamp: Date()),
-            ClipboardItem(content: "How do I implement a binary search tree?", contentType: "text", timestamp: Date()),
-            ClipboardItem(content: "DEBUG: Connection established", contentType: "text", timestamp: Date()),
+            ClipboardItem(content: "How do I implement a binary search tree?", contentType: "text", timestamp: Date())
+        ]
+        
+        cache.other = [
             ClipboardItem(content: "https://example.com/api/docs", contentType: "text", timestamp: Date()),
             ClipboardItem(content: "Random text that doesn't fit other categories", contentType: "text", timestamp: Date())
         ]
         
+        return cache
+    }()
+    
+    static var previews: some View {
         NanoPastebinView(
-            items: mockItems,
+            categorizedCache: mockCache,
             onDismiss: { print("Dismissed") },
             onCopy: { content in print("Copied: \(content)") }
         )

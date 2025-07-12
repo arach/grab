@@ -1,5 +1,54 @@
 import Foundation
 
+// Pre-categorized clipboard cache
+struct CategorizedClipboard {
+    var logs: [ClipboardItem] = []
+    var prompts: [ClipboardItem] = []
+    var images: [ClipboardItem] = []
+    var other: [ClipboardItem] = []
+    
+    let maxPerCategory = 10
+    
+    mutating func addItem(_ item: ClipboardItem) {
+        // Categorize and add to appropriate list, maintaining max limit
+        if item.isImage && images.count < maxPerCategory {
+            images.insert(item, at: 0) // Most recent first
+            if images.count > maxPerCategory {
+                images.removeLast()
+            }
+        } else if item.isLog && logs.count < maxPerCategory {
+            logs.insert(item, at: 0)
+            if logs.count > maxPerCategory {
+                logs.removeLast()
+            }
+        } else if item.isPrompt && prompts.count < maxPerCategory {
+            prompts.insert(item, at: 0)
+            if prompts.count > maxPerCategory {
+                prompts.removeLast()
+            }
+        } else if !item.isImage && !item.isLog && !item.isPrompt && other.count < maxPerCategory {
+            other.insert(item, at: 0)
+            if other.count > maxPerCategory {
+                other.removeLast()
+            }
+        }
+    }
+    
+    mutating func removeItem(_ item: ClipboardItem) {
+        logs.removeAll { $0.id == item.id }
+        prompts.removeAll { $0.id == item.id }
+        images.removeAll { $0.id == item.id }
+        other.removeAll { $0.id == item.id }
+    }
+    
+    mutating func clear() {
+        logs.removeAll()
+        prompts.removeAll()
+        images.removeAll()
+        other.removeAll()
+    }
+}
+
 struct ClipboardItem: Identifiable, Codable, Equatable {
     let id: UUID
     let content: String
@@ -195,6 +244,10 @@ extension ClipboardItem {
 
 class ClipboardHistoryManager: ObservableObject {
     @Published var items: [ClipboardItem] = []
+    
+    // Pre-categorized cache for Nano Pastebin - always ready!
+    @Published var categorizedCache = CategorizedClipboard()
+    
     private let maxStorageMB = 100 // 100MB limit
     private let maxItems = 1000 // Secondary limit to prevent excessive memory usage
     private let userDefaults = UserDefaults.standard
@@ -272,6 +325,10 @@ class ClipboardHistoryManager: ObservableObject {
         
         items.insert(newItem, at: 0) // Add to beginning
         
+        // Update the categorized cache immediately
+        categorizedCache.addItem(newItem)
+        print("📂 Added to cache - Logs: \(categorizedCache.logs.count), Prompts: \(categorizedCache.prompts.count), Images: \(categorizedCache.images.count), Other: \(categorizedCache.other.count)")
+        
         // Clean up old items based on storage size (100MB limit) and item count (1000 limit)
         let maxStorageBytes = getMaxStorageBytes()
         var currentStorageUsage = getCurrentStorageUsage()
@@ -317,6 +374,7 @@ class ClipboardHistoryManager: ObservableObject {
         }
         
         items.remove(at: index)
+        categorizedCache.removeItem(item)  // Update cache
         saveHistory()
     }
     
@@ -326,6 +384,7 @@ class ClipboardHistoryManager: ObservableObject {
         try? FileManager.default.removeItem(at: clipboardDir)
         
         items.removeAll()
+        categorizedCache.clear()  // Clear the cache too
         saveHistory()
     }
     
@@ -343,5 +402,12 @@ class ClipboardHistoryManager: ObservableObject {
         }
         
         items = decoded
+        
+        // Rebuild the categorized cache from loaded items
+        categorizedCache = CategorizedClipboard()
+        for item in items.prefix(categorizedCache.maxPerCategory * 4) { // Check enough items to fill all categories
+            categorizedCache.addItem(item)
+        }
+        print("💾 Loaded history and rebuilt cache - Logs: \(categorizedCache.logs.count), Prompts: \(categorizedCache.prompts.count), Images: \(categorizedCache.images.count), Other: \(categorizedCache.other.count)")
     }
 }

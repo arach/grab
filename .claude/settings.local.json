@@ -30,7 +30,13 @@
       "Bash(npm:*)",
       "Bash(touch:*)",
       "Bash(pnpm add:*)",
-      "Bash(pnpm build:*)"
+      "Bash(pnpm build:*)",
+      "Bash(git tag:*)",
+      "Bash(chmod:*)",
+      "Bash(./scripts/build-app.sh:*)",
+      "Bash(./build-grab-app.sh:*)",
+      "Bash(./build-unified.sh:*)",
+      "Bash(./run_grab.sh:*)"
     ],
     "deny": []
   }
