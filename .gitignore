@@ -122,3 +122,7 @@ Temporary Items
 .vscode/
 .idea/
 .claude/
+
+# Build artifacts
+Grab.app/
+*.dSYM/
