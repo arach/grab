@@ -39,7 +39,12 @@ bundle: release
 	@echo "Creating app bundle..."
 	mkdir -p $(APP_NAME).app/Contents/MacOS
 	mkdir -p $(APP_NAME).app/Contents/Resources
-	cp $(BUILD_PATH)/$(APP_NAME) $(APP_NAME).app/Contents/MacOS/
+	# Check for universal binary first, fallback to regular build path
+	if [ -f .build/apple/Products/Release/$(APP_NAME) ]; then \
+		cp .build/apple/Products/Release/$(APP_NAME) $(APP_NAME).app/Contents/MacOS/; \
+	else \
+		cp $(BUILD_PATH)/$(APP_NAME) $(APP_NAME).app/Contents/MacOS/; \
+	fi
 	cp Grab/Resources/Info.plist $(APP_NAME).app/Contents/Info.plist
 	@echo "App bundle created: $(APP_NAME).app"
 
