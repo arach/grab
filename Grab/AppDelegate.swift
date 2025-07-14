@@ -40,6 +40,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
     var clipboardHistoryWindow: ClipboardHistoryWindow?
     var nanoPastebinWindow: NanoPastebinWindow?
     var commandCenterWindow: CommandCenterWindow?
+    var captureEditorWindow: CaptureEditorWindow?
     var mainWindow: MainWindow?
     
     // Modern macOS logging
@@ -96,7 +97,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         print(startupLog)
         writeCrashLog(startupLog + "\n")
         
-        // Make this a proper menu bar app (no dock icon)
+        // Start as accessory app (no dock icon)
         NSApp.setActivationPolicy(.accessory)
         
         print("🔧 Initializing managers...")
@@ -188,7 +189,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         showPreviewItem.target = self
         menu.addItem(showPreviewItem)
         
-        let openViewerItem = NSMenuItem(title: "Open Grab Viewer", action: #selector(openGrabViewer), keyEquivalent: "v")
+        let openViewerItem = NSMenuItem(title: "Open Gallery", action: #selector(showGallery), keyEquivalent: "v")
         openViewerItem.target = self
         menu.addItem(openViewerItem)
         
@@ -254,9 +255,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         captureManager.openCapturesFolder()
     }
     
-    @objc func openGrabViewer() {
-        launchTauriViewer()
-    }
     
     @objc func showMainWindow() {
         logger.info("🪟 Opening main window")
@@ -270,16 +268,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         
         mainWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        updateActivationPolicy()
     }
     
     @objc func showClipboardHistory() {
         logger.info("🔍 Opening clipboard history window")
         writeCrashLog("🔍 Opening clipboard history at \(Date())\n")
         
+        // Ensure we're on main thread
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.showClipboardHistory()
+            }
+            return
+        }
+        
         if clipboardHistoryWindow == nil {
             clipboardHistoryWindow = ClipboardHistoryWindow(historyManager: clipboardHistoryManager)
         }
         clipboardHistoryWindow?.showHistory()
+        
+        // Update activation policy to ensure window is visible
+        updateActivationPolicy()
     }
     
     @objc func resetPasteBinPosition() {
@@ -448,9 +458,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         case "showPastebin":
             showNanoPastebin()
         case "openGallery":
-            openGrabViewer()
+            // Delay to ensure CommandCenter is fully dismissed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.showGallery()
+            }
         case "showHistory":
-            showClipboardHistory()
+            // Delay to ensure CommandCenter is fully dismissed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.showClipboardHistory()
+            }
         case "showHelp":
             // TODO: Implement help
             logger.info("Help not yet implemented")
@@ -657,10 +673,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         // Compact one-line health log with detailed memory info and personality
         logger.info("\(healthEmoji) Health check [\(timestamp, privacy: .public)]: PID \(getpid(), privacy: .public) | App: \(self.formatMemory(memoryUsage), privacy: .public) | Memory - Free: \(self.formatMemory(memoryStats.free), privacy: .public), Available: \(self.formatMemory(memoryStats.available), privacy: .public) (Inactive: \(self.formatMemory(memoryStats.inactive), privacy: .public), Purgeable: \(self.formatMemory(memoryStats.purgeable), privacy: .public)) | Clipboard: \(clipboardItems, privacy: .public) items | Timer: \(self.pasteboardTimer != nil ? "active" : "inactive", privacy: .public) | Status: \(healthDescription, privacy: .public)")
         
-        let healthLog = "\(healthEmoji) Health check [\(timestamp)]: PID \(getpid()) | App: \(formatMemory(memoryUsage)) | Memory - Free: \(formatMemory(memoryStats.free)), Available: \(formatMemory(memoryStats.available)) (Inactive: \(formatMemory(memoryStats.inactive)), Purgeable: \(formatMemory(memoryStats.purgeable))) | Clipboard: \(clipboardItems) items | Timer: \(self.pasteboardTimer != nil ? "active" : "inactive") | Status: \(healthDescription)\n"
+        let healthLog = "\(healthEmoji) Health check [\(timestamp)]: PID \(getpid()) | App: \(formatMemory(memoryUsage)) | Memory - Free: \(formatMemory(memoryStats.free)), Available: \(formatMemory(memoryStats.available)) (Inactive: \(formatMemory(memoryStats.inactive)), Purgeable: \(formatMemory(memoryStats.purgeable))) | Clipboard: \(clipboardItems) items | Timer: \(self.pasteboardTimer != nil ? "active" : "inactive") | Status: \(healthDescription)"
         
         print(healthLog)
-        writeCrashLog(healthLog)
+        writeCrashLog(healthLog + "\n")
         
         // Check for potential memory pressure
         if memoryUsage > 200 {
@@ -794,202 +810,44 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         previewWindow?.showPreview(for: capture)
     }
     
-    // MARK: - Tauri Viewer Integration
+    // MARK: - Gallery
     
-    private func launchTauriViewer() {
-        let tauriAppName = "grab-actions"
-        let latestCaptureId = getLatestCaptureId()
+    private var galleryWindow: NSWindow?
+    
+    @objc func showGallery() {
+        logger.info("🖼️ Opening gallery window")
         
-        if isTauriAppRunning(appName: tauriAppName) {
-            print("🔄 Tauri viewer already running, bringing to front")
-            bringTauriAppToFront(appName: tauriAppName, captureId: latestCaptureId)
-        } else {
-            print("🚀 Launching Tauri viewer")
-            launchTauriApp(captureId: latestCaptureId)
-        }
-    }
-    
-    private func isTauriAppRunning(appName: String) -> Bool {
-        let runningApps = NSWorkspace.shared.runningApplications
-        return runningApps.contains { app in
-            app.localizedName?.lowercased().contains(appName.lowercased()) == true ||
-            app.bundleIdentifier?.lowercased().contains(appName.lowercased()) == true
-        }
-    }
-    
-    private func bringTauriAppToFront(appName: String, captureId: String?) {
-        let runningApps = NSWorkspace.shared.runningApplications
-        
-        if let tauriApp = runningApps.first(where: { app in
-            app.localizedName?.lowercased().contains(appName.lowercased()) == true ||
-            app.bundleIdentifier?.lowercased().contains(appName.lowercased()) == true
-        }) {
-            tauriApp.activate(options: .activateAllWindows)
-            
-            if let captureId = captureId {
-                launchTauriAppWithCaptureId(captureId: captureId)
+        // Ensure we're on main thread
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.showGallery()
             }
-        }
-    }
-    
-    private func launchTauriApp(captureId: String?) {
-        let tauriAppPath = findTauriAppPath()
-        
-        guard let _ = tauriAppPath else {
-            print("⚠️ Could not find Tauri app. Please ensure grab-actions is built and available.")
-            showTauriAppNotFoundAlert()
             return
         }
         
-        if let captureId = captureId {
-            launchTauriAppWithCaptureId(captureId: captureId)
-        } else {
-            launchTauriAppWithoutCaptureId()
-        }
-    }
-    
-    private func findTauriAppPath() -> String? {
-        // Priority order: embedded app first, then development builds, then system installs
-        let possiblePaths = [
-            // 1. EMBEDDED TAURI APP (highest priority - unified app bundle)
-            Bundle.main.path(forResource: "Grab Actions", ofType: "app"),
-            Bundle.main.resourcePath?.appending("/Grab Actions.app"),
+        if galleryWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Grab Gallery"
+            window.center()
+            window.delegate = self
+            window.isReleasedWhenClosed = false  // Prevent premature release
             
-            // 2. Development build paths (from grab directory)
-            "../grab-actions/src-tauri/target/debug/grab-actions.app",
-            "./grab-actions/src-tauri/target/debug/grab-actions.app",
-            // Development build paths (from grab-actions directory)
-            "./src-tauri/target/debug/grab-actions.app",
-            "../src-tauri/target/debug/grab-actions.app",
+            // Create gallery view with proper reference
+            let galleryView = GalleryView(captureManager: captureManager)
+            let hostingView = NSHostingView(rootView: galleryView)
+            window.contentView = hostingView
             
-            // 3. Release build paths (from grab directory)
-            "../grab-actions/src-tauri/target/release/grab-actions.app",
-            "./grab-actions/src-tauri/target/release/grab-actions.app",
-            // Release build paths (from grab-actions directory)
-            "./src-tauri/target/release/grab-actions.app",
-            "../src-tauri/target/release/grab-actions.app",
-            
-            // 4. Bundled Tauri app paths
-            "../grab-actions/src-tauri/target/release/bundle/macos/Grab Actions.app",
-            "./grab-actions/src-tauri/target/release/bundle/macos/Grab Actions.app",
-            "../grab-actions/src-tauri/target/debug/bundle/macos/Grab Actions.app",
-            "./grab-actions/src-tauri/target/debug/bundle/macos/Grab Actions.app",
-            
-            // 5. Legacy bundled paths
-            Bundle.main.path(forResource: "grab-actions", ofType: "app"),
-            
-            // 6. System Applications (lowest priority)
-            "/Applications/Grab Actions.app",
-            "/Applications/grab-actions.app"
-        ]
-        
-        for path in possiblePaths {
-            if let path = path, FileManager.default.fileExists(atPath: path) {
-                let isEmbedded = path.contains(Bundle.main.bundlePath)
-                let pathType = isEmbedded ? "📦 EMBEDDED" : "🔍 EXTERNAL"
-                print("✅ Found Tauri app at: \(path) (\(pathType))")
-                return path
-            }
+            galleryWindow = window
         }
         
-        print("⚠️ No Tauri app found in any of the expected locations")
-        print("🔍 Searched in bundle: \(Bundle.main.bundlePath)")
-        print("🔍 Bundle resources: \(Bundle.main.resourcePath ?? "none")")
-        return nil
-    }
-    
-    private func getLatestCaptureId() -> String? {
-        let capturesPath = getCapturesDirectory()
-        let metadataPath = capturesPath.appendingPathComponent("metadata.json")
-        
-        guard FileManager.default.fileExists(atPath: metadataPath.path) else {
-            return nil
-        }
-        
-        do {
-            let data = try Data(contentsOf: metadataPath)
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let captures = json["captures"] as? [[String: Any]],
-               let latestCapture = captures.first,
-               let captureId = latestCapture["id"] as? String {
-                return captureId
-            }
-        } catch {
-            print("⚠️ Failed to read metadata: \(error)")
-        }
-        
-        return nil
-    }
-    
-    private func getCapturesDirectory() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("Grab/captures")
-    }
-    
-    private func launchTauriAppWithCaptureId(captureId: String) {
-        let tauriAppPath = findTauriAppPath()
-        
-        guard let appPath = tauriAppPath else {
-            print("⚠️ Could not find Tauri app. Please ensure grab-actions is built and available.")
-            showTauriAppNotFoundAlert()
-            return
-        }
-        
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = [appPath, "--args", "--capture-id=\(captureId)"]
-        
-        do {
-            try task.run()
-            print("✅ Tauri app launched successfully with capture ID: \(captureId)")
-        } catch {
-            print("❌ Failed to launch Tauri app: \(error)")
-            showTauriAppLaunchError(error: error)
-        }
-    }
-    
-    private func launchTauriAppWithoutCaptureId() {
-        let tauriAppPath = findTauriAppPath()
-        
-        guard let appPath = tauriAppPath else {
-            print("⚠️ Could not find Tauri app. Please ensure grab-actions is built and available.")
-            showTauriAppNotFoundAlert()
-            return
-        }
-        
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = [appPath]
-        
-        do {
-            try task.run()
-            print("✅ Tauri app launched successfully")
-        } catch {
-            print("❌ Failed to launch Tauri app: \(error)")
-            showTauriAppLaunchError(error: error)
-        }
-    }
-    
-    private func showTauriAppNotFoundAlert() {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Grab Viewer Not Found"
-            alert.informativeText = "The Grab Viewer app could not be found. Please ensure it's built and available in the expected location."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-        }
-    }
-    
-    private func showTauriAppLaunchError(error: Error) {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Failed to Launch Grab Viewer"
-            alert.informativeText = "An error occurred while trying to launch the Grab Viewer: \(error.localizedDescription)"
-            alert.alertStyle = .critical
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-        }
+        galleryWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        updateActivationPolicy()
     }
     
     // MARK: - Pasteboard Monitoring
@@ -1085,9 +943,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
             
             // Show brief preview
             showClipboardPreview(content: currentContent, contentType: contentType, imageData: nil)
-            
-            // Also send to Tauri app if running
-            sendClipboardContentToTauri(content: currentContent)
             
         } else if let fileURL = getFileURLFromPasteboard() {
             // File content (second priority)
@@ -1264,39 +1119,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         }
     }
     
-    private func sendClipboardContentToTauri(content: String) {
-        guard isTauriAppRunning(appName: "grab-actions") else {
-            print("📋 Tauri app not running, skipping clipboard event")
-            return
-        }
-        
-        // Create a JSON payload for the clipboard content
-        let clipboardData: [String: Any] = [
-            "content": content,
-            "timestamp": Date().timeIntervalSince1970,
-            "type": determineContentType(content: content)
-        ]
-        
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: clipboardData)
-            
-            // Write clipboard event to a shared file that Tauri can monitor
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            let grabDir = appSupport.appendingPathComponent("Grab")
-            let clipboardEventFile = grabDir.appendingPathComponent("clipboard_event.json")
-            
-            // Ensure the directory exists
-            try FileManager.default.createDirectory(at: grabDir, withIntermediateDirectories: true, attributes: nil)
-            
-            // Write the clipboard event
-            try jsonData.write(to: clipboardEventFile)
-            
-            print("📋 Clipboard event written to: \(clipboardEventFile.path)")
-            
-        } catch {
-            print("📋 Failed to write clipboard event: \(error)")
-        }
-    }
     
     private func determineContentType(content: String) -> String {
         // Check if it's a URL
@@ -1435,23 +1257,59 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         logger.debug("📋 Internal copy: \(content.prefix(30), privacy: .public)...")
     }
     
+    // MARK: - Activation Policy Management
+    
+    func updateActivationPolicy() {
+        // Check if any significant windows are open
+        let hasVisibleWindows = (mainWindow?.isVisible ?? false) || 
+                               (captureEditorWindow?.isVisible ?? false) ||
+                               (nanoPastebinWindow?.isVisible ?? false) ||
+                               (galleryWindow?.isVisible ?? false)
+        
+        if hasVisibleWindows {
+            // Switch to regular app mode (appears in Dock and Alt-Tab)
+            if NSApp.activationPolicy() != .regular {
+                NSApp.setActivationPolicy(.regular)
+                logger.info("🎯 Switched to regular app mode")
+            }
+        } else {
+            // Switch back to accessory mode (menu bar only)
+            if NSApp.activationPolicy() != .accessory {
+                NSApp.setActivationPolicy(.accessory)
+                logger.info("🎯 Switched to accessory app mode")
+            }
+        }
+    }
+    
     deinit {
         pasteboardTimer?.invalidate()
     }
 }
 
 // MARK: - NSWindowDelegate
-// TEMPORARILY DISABLED to debug crash
-/*
+
 extension AppDelegate: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         
-        // Clear reference to nano pastebin window when it closes
+        // Clear references when windows close
         if window === nanoPastebinWindow {
             logger.info("🎯 Nano pastebin window closing, clearing reference")
             nanoPastebinWindow = nil
+        } else if window === captureEditorWindow {
+            logger.info("🎯 Capture editor window closing, clearing reference")
+            captureEditorWindow = nil
+        } else if window === mainWindow {
+            logger.info("🎯 Main window closing, clearing reference")
+            mainWindow = nil
+        } else if window === galleryWindow {
+            logger.info("🎯 Gallery window closing, clearing reference")
+            galleryWindow = nil
+        }
+        
+        // Update activation policy after window closes
+        DispatchQueue.main.async { [weak self] in
+            self?.updateActivationPolicy()
         }
     }
 }
-*/

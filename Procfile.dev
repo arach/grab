@@ -1,0 +1,11 @@
+# Procfile for development with shoreman
+# Install shoreman: brew install shoreman
+
+# Watch for source changes and rebuild
+watch: fswatch -o Grab/ --exclude '\.build' | xargs -n1 -I{} make build
+
+# Run the app (will restart when build completes)
+app: while true; do .build/release/Grab; echo "App crashed or was killed, restarting in 2s..."; sleep 2; done
+
+# Optional: Watch for test changes and run tests
+# test: fswatch -o Tests/ | xargs -n1 -I{} swift test

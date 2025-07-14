@@ -258,6 +258,13 @@ class CaptureManager: ObservableObject {
                             let image = NSImage(contentsOf: filePath)
                             let dimensions = image?.size ?? CGSize.zero
                             
+                            // Check for minimum size
+                            if dimensions.width < 5 || dimensions.height < 5 {
+                                print("⚠️ Captured image too small: \(dimensions)")
+                                try? FileManager.default.removeItem(at: filePath)
+                                return
+                            }
+                            
                             let metadata = CaptureMetadata(dimensions: dimensions)
                             let capture = Capture(
                                 type: type,
@@ -268,8 +275,8 @@ class CaptureManager: ObservableObject {
                             )
                             
                             self.saveCapture(capture)
-                            // Show preview for interactive captures
-                            self.showPreviewWindow(for: capture)
+                            // Open in editor for interactive captures
+                            self.openInEditor(for: capture)
                         } catch {
                             print("Failed to get file attributes: \(error)")
                         }
@@ -292,6 +299,13 @@ class CaptureManager: ObservableObject {
                 let image = NSImage(contentsOf: filePath)
                 let dimensions = image?.size ?? CGSize.zero
                 
+                // Check for minimum size
+                if dimensions.width < 5 || dimensions.height < 5 {
+                    print("⚠️ Captured image too small: \(dimensions)")
+                    try? FileManager.default.removeItem(at: filePath)
+                    return
+                }
+                
                 let metadata = CaptureMetadata(dimensions: dimensions)
                 let capture = Capture(
                     type: type,
@@ -302,8 +316,8 @@ class CaptureManager: ObservableObject {
                 )
                 
                 saveCapture(capture)
-                // Show preview instead of notification
-                showPreviewWindow(for: capture)
+                // Open in editor instead of notification
+                openInEditor(for: capture)
             } catch {
                 print("Failed to get file attributes: \(error)")
             }
@@ -448,6 +462,26 @@ class CaptureManager: ObservableObject {
         }
         
         print("✅ Saved \(capture.type.displayName) capture: \(capture.filename)")
+    }
+    
+    private func openInEditor(for capture: Capture) {
+        print("🎯 Opening capture in editor: \(capture.filename)")
+        
+        // Play system sound for feedback
+        NSSound.beep()
+        
+        // Small delay to ensure screenshot UI is fully dismissed
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if let appDelegate = AppDelegate.shared {
+                if appDelegate.captureEditorWindow == nil {
+                    appDelegate.captureEditorWindow = CaptureEditorWindow()
+                }
+                appDelegate.captureEditorWindow?.editCapture(capture)
+                
+                // Update activation policy to show in Dock/Alt-Tab
+                appDelegate.updateActivationPolicy()
+            }
+        }
     }
     
     private func showPreviewWindow(for capture: Capture) {

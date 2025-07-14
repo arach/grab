@@ -6,6 +6,6 @@ killall Grab 2>/dev/null
 # Small delay to ensure clean shutdown
 sleep 0.5
 
-# Run the debug build
+# Run the release build
 echo "🚀 Starting Grab with Command Center..."
-.build/debug/Grab
+.build/release/Grab

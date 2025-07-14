@@ -46,7 +46,7 @@ struct CapturePreviewView: View {
                 HStack(spacing: 8) {
                     ActionButton(
                         icon: "eye",
-                        tooltip: "Open in Viewer"
+                        tooltip: "Open in Gallery"
                     ) {
                         onAction(.openViewer)
                     }

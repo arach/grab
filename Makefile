@@ -46,7 +46,9 @@ bundle: release
 		cp $(BUILD_PATH)/$(APP_NAME) $(APP_NAME).app/Contents/MacOS/; \
 	fi
 	cp Grab/Resources/Info.plist $(APP_NAME).app/Contents/Info.plist
-	@echo "App bundle created: $(APP_NAME).app"
+	# Ad-hoc sign the app to prevent code signing errors
+	codesign --force --deep --sign - $(APP_NAME).app
+	@echo "App bundle created and signed: $(APP_NAME).app"
 
 # Create app bundle (alias for bundle)
 app: bundle
@@ -137,24 +139,51 @@ info:
 
 
 
+# Development with auto-reload (requires fswatch)
+watch:
+	@if ! command -v fswatch &> /dev/null; then \
+		echo "❌ fswatch is required. Install with: brew install fswatch"; \
+		exit 1; \
+	fi
+	@./dev.sh
+
+# Simple watch mode with entr (requires entr)
+watch-entr:
+	@if ! command -v entr &> /dev/null; then \
+		echo "❌ entr is required. Install with: brew install entr"; \
+		exit 1; \
+	fi
+	@./watch.sh
+
+# Run with shoreman (requires shoreman)
+watch-shoreman:
+	@if ! command -v shoreman &> /dev/null; then \
+		echo "❌ shoreman is required. Install with: brew install shoreman"; \
+		exit 1; \
+	fi
+	@shoreman Procfile.dev
+
 # Help
 help:
 	@echo "Available targets:"
-	@echo "  build       - Build the application"
-	@echo "  run         - Build and run the application"
-	@echo "  release     - Build optimized release version"
-	@echo "  clean       - Clean build artifacts"
-	@echo "  bundle      - Create app bundle"
-	@echo "  app         - Create app bundle (alias for bundle)"
-	@echo "  dev         - Build and run with console output"
-	@echo "  install     - Install to Applications folder"
-	@echo "  uninstall   - Remove from Applications folder"
-	@echo "  debug       - Build in debug mode"
-	@echo "  test        - Run tests"
-	@echo "  format      - Format Swift code"
-	@echo "  lint        - Lint Swift code"
-	@echo "  xcode       - Generate Xcode project"
-	@echo "  deps        - Show dependencies"
-	@echo "  update      - Update dependencies"
-	@echo "  info        - Show package information"
-	@echo "  help        - Show this help message"
+	@echo "  build           - Build the application"
+	@echo "  run             - Build and run the application"
+	@echo "  release         - Build optimized release version"
+	@echo "  clean           - Clean build artifacts"
+	@echo "  bundle          - Create app bundle"
+	@echo "  app             - Create app bundle (alias for bundle)"
+	@echo "  dev             - Build and run with console output"
+	@echo "  watch           - Auto-rebuild on file changes (fswatch)"
+	@echo "  watch-entr      - Auto-rebuild on file changes (entr)"
+	@echo "  watch-shoreman  - Auto-rebuild with shoreman"
+	@echo "  install         - Install to Applications folder"
+	@echo "  uninstall       - Remove from Applications folder"
+	@echo "  debug           - Build in debug mode"
+	@echo "  test            - Run tests"
+	@echo "  format          - Format Swift code"
+	@echo "  lint            - Lint Swift code"
+	@echo "  xcode           - Generate Xcode project"
+	@echo "  deps            - Show dependencies"
+	@echo "  update          - Update dependencies"
+	@echo "  info            - Show package information"
+	@echo "  help            - Show this help message"

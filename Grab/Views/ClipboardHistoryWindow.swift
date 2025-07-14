@@ -226,6 +226,14 @@ class ClipboardHistoryWindow: NSWindow {
     }
     
     func showHistory() {
+        // Ensure we're on main thread
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.showHistory()
+            }
+            return
+        }
+        
         // If shadowed, unshadow first
         if isShadowed {
             unshadowWindow()

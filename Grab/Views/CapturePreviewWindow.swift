@@ -153,7 +153,7 @@ class CapturePreviewWindow: NSWindow {
         
         switch action {
         case .openViewer:
-            openInViewer(capture)
+            openInGallery(capture)
         case .copy:
             copyToClipboard(capture)
         case .delete:
@@ -166,9 +166,9 @@ class CapturePreviewWindow: NSWindow {
         hideWithAnimation()
     }
     
-    private func openInViewer(_ capture: Capture) {
+    private func openInGallery(_ capture: Capture) {
         if let appDelegate = NSApp.delegate as? AppDelegate {
-            appDelegate.openGrabViewer()
+            appDelegate.showGallery()
         }
     }
     
