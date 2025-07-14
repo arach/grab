@@ -29,6 +29,7 @@ class ClipboardHistoryWindow: BaseWindow {
         isOpaque = false
         backgroundColor = NSColor.clear // Fully transparent window background
         hasShadow = true // Enable shadow for better visual depth
+        isReleasedWhenClosed = false // Prevent deallocation when closed
         
         // Modern window appearance
         titlebarAppearsTransparent = true
@@ -254,7 +255,8 @@ class ClipboardHistoryWindow: BaseWindow {
     
     private func showWithAnimation() {
         alphaValue = 0.0
-        orderFront(nil)
+        makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.3
@@ -283,18 +285,13 @@ class ClipboardHistoryWindow: BaseWindow {
     }
     
     override func keyDown(with event: NSEvent) {
-        // Handle Escape key to close window
-        if event.keyCode == 53 { // Escape key
-            hideHistory()
-            return
-        }
-        
         // Handle 'S' key for shadow toggle (Cmd+S)
         if event.keyCode == 1 && event.modifierFlags.contains(.command) { // 'S' key with Cmd
             toggleShadowMode()
             return
         }
         
+        // Let BaseWindow handle ESC key
         super.keyDown(with: event)
     }
 }

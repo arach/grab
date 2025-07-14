@@ -288,6 +288,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         }
         clipboardHistoryWindow?.showHistory()
         
+        // Force the window to become key
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.clipboardHistoryWindow?.makeKey()
+            self?.clipboardHistoryWindow?.makeFirstResponder(self?.clipboardHistoryWindow)
+        }
+        
         // Update activation policy to ensure window is visible
         updateActivationPolicy()
     }

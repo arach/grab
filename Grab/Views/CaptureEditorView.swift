@@ -91,8 +91,8 @@ struct CaptureEditorView: View {
                 Button("Cancel") {
                     onAction(.cancel)
                 }
-                .keyboardShortcut(.escape, modifiers: [])
-                .opacity(isCommandMode ? 0 : 1) // Hide when in command mode to let command mode handle ESC
+                .keyboardShortcut("q", modifiers: [])
+                .opacity(isCommandMode ? 0 : 1) // Hide when in command mode to let command mode handle Q
                 
                 Button("Save") {
                     saveAnnotatedImage()
@@ -100,8 +100,19 @@ struct CaptureEditorView: View {
                 .keyboardShortcut(.return, modifiers: .command)
                 .buttonStyle(.borderedProminent)
             }
-            .padding()
-            .background(Color(NSColor.windowBackgroundColor))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                // Dark gradient background like other Grab windows
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.black.opacity(0.95),
+                        Color.black.opacity(0.85)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
             
             // Canvas
             GeometryReader { geometry in

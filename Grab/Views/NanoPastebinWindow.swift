@@ -30,6 +30,7 @@ class NanoPastebinWindow: BaseWindow {
         hasShadow = true
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        isReleasedWhenClosed = false // Prevent deallocation when closed
         minSize = NSSize(width: 400, height: 160)
         maxSize = NSSize(width: 1200, height: 600)
         // Start positioned off-screen, will be positioned when shown
@@ -79,13 +80,9 @@ class NanoPastebinWindow: BaseWindow {
         if !isVisible {
             showWithAnimation()
         } else {
-            // Window is already visible, just make it key
-            makeKeyAndOrderFront(nil)
+            // Window is already visible, just take focus
+            takeFocus()
         }
-        
-        // Ensure window can receive key events
-        makeKey()
-        makeFirstResponder(self)
         
         // Set up auto-dismiss timer
         dismissTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
@@ -168,12 +165,9 @@ class NanoPastebinWindow: BaseWindow {
         )
         
         setFrame(startFrame, display: false)
-        makeKeyAndOrderFront(nil)
         
-        // Force window to be key and active
-        NSApp.activate(ignoringOtherApps: true)
-        makeKey()
-        becomeFirstResponder()
+        // Use BaseWindow's takeFocus method
+        takeFocus()
         
         // Animate slide up and fade in
         NSAnimationContext.runAnimationGroup { context in
