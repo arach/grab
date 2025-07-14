@@ -92,6 +92,7 @@ struct CaptureEditorView: View {
                     onAction(.cancel)
                 }
                 .keyboardShortcut(.escape, modifiers: [])
+                .opacity(isCommandMode ? 0 : 1) // Hide when in command mode to let command mode handle ESC
                 
                 Button("Save") {
                     saveAnnotatedImage()

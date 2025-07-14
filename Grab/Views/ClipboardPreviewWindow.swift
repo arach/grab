@@ -1,7 +1,7 @@
 import Cocoa
 import SwiftUI
 
-class ClipboardPreviewWindow: NSWindow {
+class ClipboardPreviewWindow: BaseWindow {
     private var dismissTimer: Timer?
     private var onClickCallback: (() -> Void)?
     

@@ -826,7 +826,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, HotkeyManagerDelegate {
         }
         
         if galleryWindow == nil {
-            let window = NSWindow(
+            let window = GalleryWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
                 styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                 backing: .buffered,

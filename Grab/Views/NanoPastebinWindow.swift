@@ -1,7 +1,7 @@
 import Cocoa
 import SwiftUI
 
-class NanoPastebinWindow: NSWindow {
+class NanoPastebinWindow: BaseWindow {
     static weak var shared: NanoPastebinWindow?
     private var dismissTimer: Timer?
     

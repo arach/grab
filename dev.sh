@@ -10,10 +10,12 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # PID file for the running app
 PID_FILE=".grab.pid"
+PAUSE_FILE=".watch-pause"
 
 # Function to kill the running app
 kill_app() {
@@ -56,6 +58,12 @@ start_app() {
 
 # Function to handle file changes
 on_change() {
+    # Check if paused
+    if [ -f "$PAUSE_FILE" ]; then
+        echo -e "${CYAN}⏸️  Auto-reload paused. Changes detected but not rebuilding.${NC}"
+        return
+    fi
+    
     echo -e "${YELLOW}📝 Detected changes, rebuilding...${NC}"
     if build_app; then
         start_app
@@ -66,7 +74,7 @@ on_change() {
 cleanup() {
     echo -e "\n${YELLOW}🧹 Cleaning up...${NC}"
     kill_app
-    rm -f "$PID_FILE"
+    rm -f "$PID_FILE" "$PAUSE_FILE"
     exit 0
 }
 
@@ -82,7 +90,8 @@ fi
 
 # Watch for changes
 echo -e "${BLUE}👀 Watching for changes...${NC}"
-echo -e "${YELLOW}Press Ctrl+C to stop${NC}\n"
+echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
+echo -e "${CYAN}Tip: Create '.watch-pause' file to pause auto-reload${NC}\n"
 
 # Watch Swift files and rebuild on changes
 fswatch -o \

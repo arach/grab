@@ -163,6 +163,14 @@ watch-shoreman:
 	fi
 	@shoreman Procfile.dev
 
+# Pause auto-reload
+watch-pause:
+	@./watch-pause.sh
+
+# Resume auto-reload
+watch-resume:
+	@./watch-resume.sh
+
 # Help
 help:
 	@echo "Available targets:"
@@ -176,6 +184,8 @@ help:
 	@echo "  watch           - Auto-rebuild on file changes (fswatch)"
 	@echo "  watch-entr      - Auto-rebuild on file changes (entr)"
 	@echo "  watch-shoreman  - Auto-rebuild with shoreman"
+	@echo "  watch-pause     - Pause auto-reload during edits"
+	@echo "  watch-resume    - Resume auto-reload and trigger rebuild"
 	@echo "  install         - Install to Applications folder"
 	@echo "  uninstall       - Remove from Applications folder"
 	@echo "  debug           - Build in debug mode"

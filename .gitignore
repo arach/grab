@@ -126,3 +126,8 @@ Temporary Items
 # Build artifacts
 Grab.app/
 *.dSYM/
+
+# Development files
+.grab.pid
+.watch-pause
+.watch-build-on-resume

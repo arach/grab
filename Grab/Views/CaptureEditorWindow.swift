@@ -1,7 +1,7 @@
 import Cocoa
 import SwiftUI
 
-class CaptureEditorWindow: NSWindow {
+class CaptureEditorWindow: BaseWindow {
     private var capture: Capture?
     
     override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing backingStoreType: NSWindow.BackingStoreType, defer flag: Bool) {

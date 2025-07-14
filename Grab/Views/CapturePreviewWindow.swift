@@ -1,7 +1,7 @@
 import Cocoa
 import SwiftUI
 
-class CapturePreviewWindow: NSWindow {
+class CapturePreviewWindow: BaseWindow {
     private var dismissTimer: Timer?
     private var statusBarRect: CGRect?
     

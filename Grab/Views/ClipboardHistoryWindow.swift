@@ -1,7 +1,7 @@
 import Cocoa
 import SwiftUI
 
-class ClipboardHistoryWindow: NSWindow {
+class ClipboardHistoryWindow: BaseWindow {
     private let historyManager: ClipboardHistoryManager
     private let windowFrameName = "ClipboardHistoryWindow"
     
